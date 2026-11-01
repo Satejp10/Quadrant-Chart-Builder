@@ -362,7 +362,7 @@
     const toY = v => P.y1 - v * (P.y1 - P.y0);
     const s = state, out = [];
     const add = t => out.push(t);
-    const AX = { size: 13, weight: 600, fill: C.muted };
+    const AX = { size: 17, weight: 600, fill: C.muted };
 
     add(`<rect width="${W}" height="${H}" fill="${C.bg}"/>`);
     /* on the page, empty labels show a faint placeholder so they can still be double-clicked; exports skip them */
@@ -370,7 +370,7 @@
     const shown = (val, ph) => val || (forExport ? '' : ph);
     const titleFill = s.title ? C.ink : C.faint;
     if (phone) add(textBlock(wrap(shown(s.title, 'Add a title'), W - 32, PHONE_T.title, 600, DISPLAY), 16, g.pos.titleY, { size: PHONE_T.title, weight: 600, family: DISPLAY, lh: 1.2, fill: titleFill, ...ed('f-title') }));
-    else add(textBlock(wrap(shown(s.title, 'Add a title'), 880, 26, 600, DISPLAY), 40, 58, { size: 26, weight: 600, family: DISPLAY, lh: 1.2, fill: titleFill, ...ed('f-title') }));
+    else add(textBlock(wrap(shown(s.title, 'Add a title'), 880, 32, 600, DISPLAY), 40, 58, { size: 32, weight: 600, family: DISPLAY, lh: 1.2, fill: titleFill, ...ed('f-title') }));
 
     /* dotted quarter gridlines, then the solid cross */
     for (const t of [0.25, 0.75]) {
@@ -392,15 +392,15 @@
       if (leftT) add(textBlock(wrap(leftT, g.half, PHONE_T.axis, 600, SANS), P.x0, pos.rowY, { ...PA, fill: axisFill(s.axes.left), anchor: 'start', ...ed('f-left') }));
       if (rightT) add(textBlock(wrap(rightT, g.half, PHONE_T.axis, 600, SANS), P.x1, pos.rowY, { ...PA, fill: axisFill(s.axes.right), anchor: 'end', ...ed('f-right') }));
     } else {
-      if (topT) add(textBlock(wrap(topT, 380, 13, 600, SANS), CX, P.y0 - 18, { ...AX, fill: axisFill(s.axes.top), anchor: 'middle', v: 'last', ...ed('f-top') }));
-      if (bottomT) add(textBlock(wrap(bottomT, 380, 13, 600, SANS), CX, P.y1 + 36, { ...AX, fill: axisFill(s.axes.bottom), anchor: 'middle', ...ed('f-bottom') }));
-      if (leftT) add(textBlock(wrap(leftT, 168, 13, 600, SANS), P.x0 - 16, CY, { ...AX, fill: axisFill(s.axes.left), anchor: 'end', v: 'middle', ...ed('f-left') }));
-      if (rightT) add(textBlock(wrap(rightT, 168, 13, 600, SANS), P.x1 + 16, CY, { ...AX, fill: axisFill(s.axes.right), anchor: 'start', v: 'middle', ...ed('f-right') }));
+      if (topT) add(textBlock(wrap(topT, 380, 17, 600, SANS), CX, P.y0 - 18, { ...AX, fill: axisFill(s.axes.top), anchor: 'middle', v: 'last', ...ed('f-top') }));
+      if (bottomT) add(textBlock(wrap(bottomT, 380, 17, 600, SANS), CX, P.y1 + 36, { ...AX, fill: axisFill(s.axes.bottom), anchor: 'middle', ...ed('f-bottom') }));
+      if (leftT) add(textBlock(wrap(leftT, 168, 17, 600, SANS), P.x0 - 16, CY, { ...AX, fill: axisFill(s.axes.left), anchor: 'end', v: 'middle', ...ed('f-left') }));
+      if (rightT) add(textBlock(wrap(rightT, 168, 17, 600, SANS), P.x1 + 16, CY, { ...AX, fill: axisFill(s.axes.right), anchor: 'start', v: 'middle', ...ed('f-right') }));
     }
 
     /* corner names */
     const corner = (val, ph) => up(shown(val, ph));
-    const Q = phone ? { size: PHONE_T.corner, ls: PHONE_T.cornerLS, w: g.half, d: 12, up: 28, down: 14 } : { size: 11, ls: 0.9, w: 220, d: 14, up: 26, down: 16 };
+    const Q = phone ? { size: PHONE_T.corner, ls: PHONE_T.cornerLS, w: g.half, d: 12, up: 28, down: 14 } : { size: 14, ls: 0.9, w: 260, d: 14, up: 28, down: 16 };
     const QN = { size: Q.size, weight: 700, fill: C.muted, ls: Q.ls };
     add(textBlock(wrap(corner(s.quads.tl, 'Corner label'), Q.w, Q.size, 700, SANS), P.x0 + Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tl ? C.muted : C.faint, anchor: 'start', ...ed('f-tl') }));
     add(textBlock(wrap(corner(s.quads.tr, 'Corner label'), Q.w, Q.size, 700, SANS), P.x1 - Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tr ? C.muted : C.faint, anchor: 'end', ...ed('f-tr') }));
@@ -421,14 +421,14 @@
       }
       add(`<circle class="dot" cx="${cx}" cy="${cy}" r="8" fill="${p.color}" fill-opacity="0.62" stroke="${p.color}" stroke-width="1.5"/>`);
       const room = flip ? cx - 21 : W - cx - 21;   // space from the label's start to the canvas edge
-      const ps = phone ? PHONE_T.point : 14;
-      const nameW = phone ? Math.min(220, Math.max(60, room)) : 230;
+      const ps = phone ? PHONE_T.point : 18;
+      const nameW = phone ? Math.min(220, Math.max(60, room)) : 280;
       add(textBlock(wrap(name, nameW, ps, 600, SANS), flip ? cx - 17 : cx + 17, cy + 5, { size: ps, weight: 600, anchor: flip ? 'end' : 'start', halo: 4 }));
       add('</g>');
     }
 
     if (phone) add(textBlock(wrap(shown(s.note, 'Add a footnote'), W - 32, PHONE_T.note, 400, SANS), 16, g.pos.noteY, { size: PHONE_T.note, weight: 400, fill: C.faint, ...ed('f-note') }));
-    else add(textBlock(wrap(shown(s.note, 'Add a footnote'), 880, 12.5, 400, SANS), 40, H - 26, { size: 12.5, weight: 400, fill: C.faint, v: 'last', ...ed('f-note') }));
+    else add(textBlock(wrap(shown(s.note, 'Add a footnote'), 880, 15, 400, SANS), 40, H - 26, { size: 15, weight: 400, fill: C.faint, v: 'last', ...ed('f-note') }));
 
     const label = forExport ? '' : ` role="group" aria-label="Quadrant chart, ${s.items.length} point${s.items.length === 1 ? '' : 's'}"`;
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${SANS}"${label}>${out.join('')}</svg>`;
