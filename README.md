@@ -1,5 +1,7 @@
 # Quadrant Chart Builder
 
+**[Open the Quadrant Chart Builder](https://satejp10.github.io/Quadrant-Chart-Builder/Quadrant_Chart_Builder.html)**
+
 A single-file web app for making 2x2 quadrant charts. Open `Quadrant_Chart_Builder.html` in a browser. There is no login, no install, and no build step.
 
 ## How to use
