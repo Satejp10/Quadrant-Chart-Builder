@@ -47,6 +47,7 @@
   /* chart */
   .chart{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .chart svg{display:block;width:100%;height:auto;min-width:640px;cursor:crosshair;touch-action:none;user-select:none;-webkit-user-select:none}
+  .chart.phone svg{min-width:0}
   .chart svg g.pt{cursor:grab;outline:none}
   .chart svg g.pt:active{cursor:grabbing}
   .chart svg .dot{fill-opacity:.62;transition:fill-opacity .15s}
@@ -210,9 +211,11 @@
   'use strict';
 
   /* ---------- canvas and plot geometry (SVG units) ---------- */
-  const W = 960, H = 700;
-  const P = { x0: 210, x1: 750, y0: 124, y1: 604 };
-  const CX = (P.x0 + P.x1) / 2, CY = (P.y0 + P.y1) / 2;
+  /* Desktop: the plot sits inside a 960 x 700 canvas, with labels around it. Every export uses this layout. */
+  const DESK = { W: 960, H: 700, P: { x0: 210, x1: 750, y0: 124, y1: 604 }, phone: false };
+  /* Phone: a narrow canvas (see phoneGeo). A chart box narrower than PHONE_MAX uses it on the page. */
+  const PHONE_MAX = 820;
+  let pageGeo = DESK;   // geometry of the chart on the page. Pointer math reads it.
 
   /* Plainchart tokens used inside the SVG, written as literal values so exports keep their colors */
   const C = { bg: '#ffffff', ink: '#1f1f1f', muted: '#737373', faint: '#a3a3a3', grid: '#f1f1f1', axis: '#dcdcdc', accent: '#7F4BF3' };
@@ -245,11 +248,12 @@
   const round3 = v => Math.round(clamp01(v) * 1000) / 1000;
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const up = s => String(s ?? '').toUpperCase();
-  const toX = v => P.x0 + v * (P.x1 - P.x0);
-  const toY = v => P.y1 - v * (P.y1 - P.y0);
-  const fromX = px => (px - P.x0) / (P.x1 - P.x0);
-  const fromY = py => (P.y1 - py) / (P.y1 - P.y0);
-  const inPlot = pt => pt.x >= P.x0 && pt.x <= P.x1 && pt.y >= P.y0 && pt.y <= P.y1;
+  const fromX = px => (px - pageGeo.P.x0) / (pageGeo.P.x1 - pageGeo.P.x0);
+  const fromY = py => (pageGeo.P.y1 - py) / (pageGeo.P.y1 - pageGeo.P.y0);
+  const inPlot = pt => {
+    const P = pageGeo.P;
+    return pt.x >= P.x0 && pt.x <= P.x1 && pt.y >= P.y0 && pt.y <= P.y1;
+  };
 
   /* ---------- text measuring and wrapping ----------
      Widths come from the SVG engine itself (a hidden <text> element), so the wrap matches what is drawn.
@@ -319,18 +323,54 @@
     return `<text ${attr.join(' ')}>${tspans}</text>`;
   }
 
+  /* ---------- phone layout ----------
+     The canvas is as wide as the chart box, so one SVG unit is one screen pixel and the text keeps its size.
+     The plot is square. The title sits above it, the top label above that, the bottom label below it, and the
+     left and right labels side by side under that. Each row's height comes from how many lines its text wraps
+     to, so the canvas grows with the text. */
+  const PHONE_T = { title: 24, axis: 15, corner: 13, cornerLS: 0.6, point: 16, note: 14 };
+  function phoneGeo(s, W) {
+    const txt = (val, ph) => val || ph;
+    const countLines = (str, w, size, weight, family) => wrap(str, w, size, weight, family).length;
+    const span = (n, size, lh) => (n - 1) * size * lh;   // distance from a block's first baseline to its last
+    const pw = W - 32;                                   // the plot and the full-width labels
+    const half = Math.floor((pw - 16) / 2);              // left and right labels, side by side
+    const nTitle = countLines(txt(s.title, 'Add a title'), pw, PHONE_T.title, 600, DISPLAY);
+    const nTop = countLines(txt(s.axes.top, 'Top label'), pw, PHONE_T.axis, 600, SANS);
+    const nBottom = countLines(txt(s.axes.bottom, 'Bottom label'), pw, PHONE_T.axis, 600, SANS);
+    const nRow = Math.max(
+      countLines(txt(s.axes.left, 'Left label'), half, PHONE_T.axis, 600, SANS),
+      countLines(txt(s.axes.right, 'Right label'), half, PHONE_T.axis, 600, SANS)
+    );
+    const nNote = countLines(txt(s.note, 'Add a footnote'), pw, PHONE_T.note, 400, SANS);
+    const titleY = 40;
+    const topY = titleY + span(nTitle, PHONE_T.title, 1.2) + 32;
+    const y0 = topY + span(nTop, PHONE_T.axis, 1.3) + 18;
+    const y1 = y0 + pw;                                  // square plot
+    const bottomY = y1 + 34;
+    const rowY = bottomY + span(nBottom, PHONE_T.axis, 1.3) + 34;
+    const noteY = rowY + span(nRow, PHONE_T.axis, 1.3) + 34;
+    const H = noteY + span(nNote, PHONE_T.note, 1.3) + 18;
+    return { W, H, P: { x0: 16, x1: 16 + pw, y0, y1 }, phone: true, half, pos: { titleY, topY, bottomY, rowY, noteY } };
+  }
+
   /* ---------- the chart as SVG markup (used on the page and in every export) ---------- */
-  function chartSVG(forExport) {
+  function chartSVG(forExport, g) {
+    const { W, H, P, phone } = g;
+    const CX = (P.x0 + P.x1) / 2, CY = (P.y0 + P.y1) / 2;
+    const toX = v => P.x0 + v * (P.x1 - P.x0);
+    const toY = v => P.y1 - v * (P.y1 - P.y0);
     const s = state, out = [];
     const add = t => out.push(t);
     const AX = { size: 13, weight: 600, fill: C.muted };
-    const QN = { size: 11, weight: 700, fill: C.muted, ls: 0.9 };
 
     add(`<rect width="${W}" height="${H}" fill="${C.bg}"/>`);
     /* on the page, empty labels show a faint placeholder so they can still be double-clicked; exports skip them */
     const ed = key => (forExport ? {} : { edit: key });
     const shown = (val, ph) => val || (forExport ? '' : ph);
-    add(textBlock(wrap(shown(s.title, 'Add a title'), 880, 26, 600, DISPLAY), 40, 58, { size: 26, weight: 600, family: DISPLAY, lh: 1.2, fill: s.title ? C.ink : C.faint, ...ed('f-title') }));
+    const titleFill = s.title ? C.ink : C.faint;
+    if (phone) add(textBlock(wrap(shown(s.title, 'Add a title'), W - 32, PHONE_T.title, 600, DISPLAY), 16, g.pos.titleY, { size: PHONE_T.title, weight: 600, family: DISPLAY, lh: 1.2, fill: titleFill, ...ed('f-title') }));
+    else add(textBlock(wrap(shown(s.title, 'Add a title'), 880, 26, 600, DISPLAY), 40, 58, { size: 26, weight: 600, family: DISPLAY, lh: 1.2, fill: titleFill, ...ed('f-title') }));
 
     /* dotted quarter gridlines, then the solid cross */
     for (const t of [0.25, 0.75]) {
@@ -344,23 +384,34 @@
     const axisFill = val => (val ? AX.fill : C.faint);
     const topT = shown(s.axes.top, 'Top label'), bottomT = shown(s.axes.bottom, 'Bottom label');
     const leftT = shown(s.axes.left, 'Left label'), rightT = shown(s.axes.right, 'Right label');
-    if (topT) add(textBlock(wrap(topT, 380, 13, 600, SANS), CX, P.y0 - 18, { ...AX, fill: axisFill(s.axes.top), anchor: 'middle', v: 'last', ...ed('f-top') }));
-    if (bottomT) add(textBlock(wrap(bottomT, 380, 13, 600, SANS), CX, P.y1 + 36, { ...AX, fill: axisFill(s.axes.bottom), anchor: 'middle', ...ed('f-bottom') }));
-    if (leftT) add(textBlock(wrap(leftT, 168, 13, 600, SANS), P.x0 - 16, CY, { ...AX, fill: axisFill(s.axes.left), anchor: 'end', v: 'middle', ...ed('f-left') }));
-    if (rightT) add(textBlock(wrap(rightT, 168, 13, 600, SANS), P.x1 + 16, CY, { ...AX, fill: axisFill(s.axes.right), anchor: 'start', v: 'middle', ...ed('f-right') }));
+    if (phone) {
+      const pos = g.pos;
+      const PA = { ...AX, size: PHONE_T.axis };
+      if (topT) add(textBlock(wrap(topT, W - 32, PHONE_T.axis, 600, SANS), CX, pos.topY, { ...PA, fill: axisFill(s.axes.top), anchor: 'middle', ...ed('f-top') }));
+      if (bottomT) add(textBlock(wrap(bottomT, W - 32, PHONE_T.axis, 600, SANS), CX, pos.bottomY, { ...PA, fill: axisFill(s.axes.bottom), anchor: 'middle', ...ed('f-bottom') }));
+      if (leftT) add(textBlock(wrap(leftT, g.half, PHONE_T.axis, 600, SANS), P.x0, pos.rowY, { ...PA, fill: axisFill(s.axes.left), anchor: 'start', ...ed('f-left') }));
+      if (rightT) add(textBlock(wrap(rightT, g.half, PHONE_T.axis, 600, SANS), P.x1, pos.rowY, { ...PA, fill: axisFill(s.axes.right), anchor: 'end', ...ed('f-right') }));
+    } else {
+      if (topT) add(textBlock(wrap(topT, 380, 13, 600, SANS), CX, P.y0 - 18, { ...AX, fill: axisFill(s.axes.top), anchor: 'middle', v: 'last', ...ed('f-top') }));
+      if (bottomT) add(textBlock(wrap(bottomT, 380, 13, 600, SANS), CX, P.y1 + 36, { ...AX, fill: axisFill(s.axes.bottom), anchor: 'middle', ...ed('f-bottom') }));
+      if (leftT) add(textBlock(wrap(leftT, 168, 13, 600, SANS), P.x0 - 16, CY, { ...AX, fill: axisFill(s.axes.left), anchor: 'end', v: 'middle', ...ed('f-left') }));
+      if (rightT) add(textBlock(wrap(rightT, 168, 13, 600, SANS), P.x1 + 16, CY, { ...AX, fill: axisFill(s.axes.right), anchor: 'start', v: 'middle', ...ed('f-right') }));
+    }
 
     /* corner names */
     const corner = (val, ph) => up(shown(val, ph));
-    add(textBlock(wrap(corner(s.quads.tl, 'Corner label'), 220, 11, 700, SANS), P.x0 + 14, P.y0 + 26, { ...QN, fill: s.quads.tl ? C.muted : C.faint, anchor: 'start', ...ed('f-tl') }));
-    add(textBlock(wrap(corner(s.quads.tr, 'Corner label'), 220, 11, 700, SANS), P.x1 - 14, P.y0 + 26, { ...QN, fill: s.quads.tr ? C.muted : C.faint, anchor: 'end', ...ed('f-tr') }));
-    add(textBlock(wrap(corner(s.quads.bl, 'Corner label'), 220, 11, 700, SANS), P.x0 + 14, P.y1 - 16, { ...QN, fill: s.quads.bl ? C.muted : C.faint, anchor: 'start', v: 'last', ...ed('f-bl') }));
-    add(textBlock(wrap(corner(s.quads.br, 'Corner label'), 220, 11, 700, SANS), P.x1 - 14, P.y1 - 16, { ...QN, fill: s.quads.br ? C.muted : C.faint, anchor: 'end', v: 'last', ...ed('f-br') }));
+    const Q = phone ? { size: PHONE_T.corner, ls: PHONE_T.cornerLS, w: g.half, d: 12, up: 28, down: 14 } : { size: 11, ls: 0.9, w: 220, d: 14, up: 26, down: 16 };
+    const QN = { size: Q.size, weight: 700, fill: C.muted, ls: Q.ls };
+    add(textBlock(wrap(corner(s.quads.tl, 'Corner label'), Q.w, Q.size, 700, SANS), P.x0 + Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tl ? C.muted : C.faint, anchor: 'start', ...ed('f-tl') }));
+    add(textBlock(wrap(corner(s.quads.tr, 'Corner label'), Q.w, Q.size, 700, SANS), P.x1 - Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tr ? C.muted : C.faint, anchor: 'end', ...ed('f-tr') }));
+    add(textBlock(wrap(corner(s.quads.bl, 'Corner label'), Q.w, Q.size, 700, SANS), P.x0 + Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.bl ? C.muted : C.faint, anchor: 'start', v: 'last', ...ed('f-bl') }));
+    add(textBlock(wrap(corner(s.quads.br, 'Corner label'), Q.w, Q.size, 700, SANS), P.x1 - Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.br ? C.muted : C.faint, anchor: 'end', v: 'last', ...ed('f-br') }));
 
     /* points */
     for (const p of s.items) {
       const cx = toX(p.x), cy = toY(p.y);
       const name = p.name || 'Untitled';
-      const flip = p.x > 0.74;
+      const flip = phone ? p.x > 0.5 : p.x > 0.74;
       if (forExport) {
         add('<g>');
       } else {
@@ -369,11 +420,15 @@
         add(`<circle class="halo" cx="${cx}" cy="${cy}" r="13" fill="none" stroke="${C.accent}" stroke-width="2"/>`);
       }
       add(`<circle class="dot" cx="${cx}" cy="${cy}" r="8" fill="${p.color}" fill-opacity="0.62" stroke="${p.color}" stroke-width="1.5"/>`);
-      add(textBlock(wrap(name, 230, 14, 600, SANS), flip ? cx - 17 : cx + 17, cy + 5, { size: 14, weight: 600, anchor: flip ? 'end' : 'start', halo: 4 }));
+      const room = flip ? cx - 21 : W - cx - 21;   // space from the label's start to the canvas edge
+      const ps = phone ? PHONE_T.point : 14;
+      const nameW = phone ? Math.min(220, Math.max(60, room)) : 230;
+      add(textBlock(wrap(name, nameW, ps, 600, SANS), flip ? cx - 17 : cx + 17, cy + 5, { size: ps, weight: 600, anchor: flip ? 'end' : 'start', halo: 4 }));
       add('</g>');
     }
 
-    add(textBlock(wrap(shown(s.note, 'Add a footnote'), 880, 12.5, 400, SANS), 40, H - 26, { size: 12.5, weight: 400, fill: C.faint, v: 'last', ...ed('f-note') }));
+    if (phone) add(textBlock(wrap(shown(s.note, 'Add a footnote'), W - 32, PHONE_T.note, 400, SANS), 16, g.pos.noteY, { size: PHONE_T.note, weight: 400, fill: C.faint, ...ed('f-note') }));
+    else add(textBlock(wrap(shown(s.note, 'Add a footnote'), 880, 12.5, 400, SANS), 40, H - 26, { size: 12.5, weight: 400, fill: C.faint, v: 'last', ...ed('f-note') }));
 
     const label = forExport ? '' : ` role="group" aria-label="Quadrant chart, ${s.items.length} point${s.items.length === 1 ? '' : 's'}"`;
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${SANS}"${label}>${out.join('')}</svg>`;
@@ -440,7 +495,14 @@
   /* ---------- rendering ---------- */
   function setStatus(msg) { statusEl.textContent = msg; }
 
-  function renderChart() { chartBox.innerHTML = chartSVG(false); }
+  let lastBoxWidth = -1;
+  function renderChart() {
+    const bw = Math.round(chartBox.clientWidth);
+    lastBoxWidth = bw;
+    pageGeo = bw < PHONE_MAX ? phoneGeo(state, Math.max(280, bw)) : DESK;
+    chartBox.classList.toggle('phone', pageGeo.phone);
+    chartBox.innerHTML = chartSVG(false, pageGeo);
+  }
 
   function renderSub() {
     const t = state.axes.top, r = state.axes.right;
@@ -684,14 +746,14 @@
 
   /* Draws the SVG onto a canvas and returns a PNG blob. */
   function renderPNG(scale) {
-    const svgURL = URL.createObjectURL(new Blob([chartSVG(true)], { type: 'image/svg+xml;charset=utf-8' }));
+    const svgURL = URL.createObjectURL(new Blob([chartSVG(true, DESK)], { type: 'image/svg+xml;charset=utf-8' }));
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
-          canvas.width = Math.round(W * scale);
-          canvas.height = Math.round(H * scale);
+          canvas.width = Math.round(DESK.W * scale);
+          canvas.height = Math.round(DESK.H * scale);
           const ctx = canvas.getContext('2d');
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -766,14 +828,14 @@
     }
   });
 
-  $('dl-svg').addEventListener('click', () => saveFile(baseName() + '.svg', chartSVG(true), 'image/svg+xml'));
+  $('dl-svg').addEventListener('click', () => saveFile(baseName() + '.svg', chartSVG(true, DESK), 'image/svg+xml'));
   /* the chart header button saves the same PNG as the export card */
   $('chart-dl').addEventListener('click', () => $('dl-png').click());
 
   $('save-json').addEventListener('click', () => saveFile(baseName() + '.json', JSON.stringify(serialize(), null, 2), 'application/json'));
 
   $('copy-svg').addEventListener('click', async () => {
-    const text = chartSVG(true);
+    const text = chartSVG(true, DESK);
     try {
       await navigator.clipboard.writeText(text);
       setStatus('SVG code copied.');
@@ -886,7 +948,7 @@
     finishInline(true);
     const svg = chartBox.querySelector('svg');
     if (!svg || !anchor) return;
-    const scale = svg.getBoundingClientRect().width / W;   // SVG units to screen pixels
+    const scale = svg.getBoundingClientRect().width / pageGeo.W;   // SVG units to screen pixels
     const r = anchor.getBoundingClientRect();
     const mode = anchor.getAttribute('text-anchor') || 'start';
     const cs = getComputedStyle(anchor);
@@ -995,6 +1057,14 @@
   fillFields();
   refreshPreviewSoon();
   setStatus('Changes save in this browser');
+
+  /* switch between the desktop and phone layouts when the chart box crosses PHONE_MAX */
+  if ('ResizeObserver' in window) {
+    new ResizeObserver(() => {
+      const bw = Math.round(chartBox.clientWidth);
+      if (bw !== lastBoxWidth && (bw < PHONE_MAX || pageGeo.phone)) renderChart();
+    }).observe(chartBox);
+  }
 
   /* once the web font has loaded, measure again so wrapping uses the real letterforms */
   if (document.fonts && document.fonts.ready) {
