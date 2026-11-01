@@ -66,6 +66,10 @@
   input[type=text]:hover,input[type=number]:hover{border-color:#cfcfcf}
   input[type=text]:focus-visible,input[type=number]:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
   input::placeholder{color:var(--faint)}
+  textarea{font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.5;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:8px;padding:9px 11px;width:100%;min-width:0;min-height:120px;resize:vertical;transition:border-color .15s}
+  textarea:hover{border-color:#cfcfcf}
+  textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+  textarea::placeholder{color:var(--faint)}
 
   /* points list */
   .colhead,.row{display:grid;grid-template-columns:20px minmax(0,1fr) 62px 62px 32px;gap:8px;align-items:center}
@@ -189,6 +193,18 @@
     </div>
     <div class="preview" id="preview-box" hidden><img id="preview" alt="Preview of the chart as a PNG"></div>
     <p class="hint">If nothing downloads, right-click the preview and choose Save image as.</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-text">
+    <div class="card-h"><div class="eyebrow"><span class="sq" aria-hidden="true"></span><h2 id="h-text">Setup as text</h2></div></div>
+    <p class="sub">Copy the setup as JSON or Mermaid code. To load one, paste it below and press Load. Load replaces the chart on the page.</p>
+    <div class="actions">
+      <button class="btn" id="copy-json" type="button">Copy as JSON</button>
+      <button class="btn" id="copy-mermaid" type="button">Copy as Mermaid</button>
+    </div>
+    <label class="field"><span>Paste JSON or Mermaid code</span><textarea id="paste" rows="7" spellcheck="false" autocomplete="off"></textarea></label>
+    <div class="actions"><button class="btn primary" id="load-text" type="button">Load</button></div>
+    <p class="hint" id="paste-note" role="status" aria-live="polite"></p>
   </section>
 
   <footer>Drafts save in this browser only. Save a project file to keep a copy you can open later.</footer>
@@ -834,11 +850,11 @@
 
   $('save-json').addEventListener('click', () => saveFile(baseName() + '.json', JSON.stringify(serialize(), null, 2), 'application/json'));
 
-  $('copy-svg').addEventListener('click', async () => {
-    const text = chartSVG(true, DESK);
+  /* copies text to the clipboard. Returns false where the browser blocks copying. */
+  async function copyText(text) {
     try {
       await navigator.clipboard.writeText(text);
-      setStatus('SVG code copied.');
+      return true;
     } catch (err) {
       const ta = document.createElement('textarea');
       ta.value = text;
@@ -850,8 +866,13 @@
       let ok = false;
       try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
       ta.remove();
-      setStatus(ok ? 'SVG code copied.' : 'Copy is blocked in this view.');
+      return ok;
     }
+  }
+
+  $('copy-svg').addEventListener('click', async () => {
+    const ok = await copyText(chartSVG(true, DESK));
+    setStatus(ok ? 'SVG code copied.' : 'Copy is blocked in this view.');
   });
 
   $('open-json').addEventListener('click', () => fileInput.click());
@@ -862,17 +883,120 @@
     try {
       const raw = JSON.parse(await f.text());
       if (!raw || !Array.isArray(raw.items)) throw new Error('not a chart');
-      state = normalize(raw);
-      selectedId = null;
-      renderList();
-      fillFields();
-      changed();
+      loadSetup(raw);
       setStatus('Opened ' + f.name);
     } catch (err) {
       setStatus("That file isn't a quadrant chart project.");
     } finally {
       fileInput.value = '';
     }
+  });
+
+  /* ---------- setup as text: JSON (the same as a project file) or Mermaid quadrantChart code ----------
+     Mermaid has no footnote, so the footnote goes in a %% comment line, which Mermaid ignores. */
+  const pasteBox = $('paste'), pasteNote = $('paste-note');
+  const setPasteNote = msg => { pasteNote.textContent = msg; };
+  const ZWSP = '​';   // Mermaid rejects an empty first axis label, so an invisible character stands in for it
+  // Mermaid numbers the quadrants: 1 top right, 2 top left, 3 bottom left, 4 bottom right
+  const MM_QUADS = [['quadrant-1', 'tr'], ['quadrant-2', 'tl'], ['quadrant-3', 'bl'], ['quadrant-4', 'br']];
+
+  /* Mermaid text: one line, no double quotes, and no arrows inside a label */
+  const mmLine = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+  const mmText = s => mmLine(s).replace(/"/g, "'").replace(/-+>/g, '→');
+  const mmQuote = s => `"${mmText(s)}"`;
+
+  function toMermaid(s) {
+    const out = ['quadrantChart'];
+    const title = mmLine(s.title);
+    if (title) out.push(`    title ${title}`);
+    const axis = (key, first, second) => {
+      const a = mmText(first), b = mmText(second);
+      if (!a && !b) return;
+      if (!b) out.push(`    ${key} ${mmQuote(a)}`);
+      else out.push(`    ${key} ${a ? mmQuote(a) : `"${ZWSP}"`} --> ${mmQuote(b)}`);
+    };
+    axis('x-axis', s.axes.left, s.axes.right);
+    axis('y-axis', s.axes.bottom, s.axes.top);
+    for (const [key, q] of MM_QUADS) {
+      const t = mmText(s.quads[q]);
+      if (t) out.push(`    ${key} ${mmQuote(t)}`);
+    }
+    out.push(`    %% footnote: ${mmLine(s.note)}`);
+    for (const p of s.items) {
+      const name = mmText(p.name) || 'Untitled';
+      out.push(`    ${mmQuote(name)}: [${round3(p.x)}, ${round3(p.y)}]`);
+    }
+    return out.join('\n') + '\n';
+  }
+
+  /* Reads Mermaid quadrantChart text. Returns null when the first real line is not that header. */
+  function fromMermaid(text, keepNote) {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const start = lines.findIndex(l => !l.startsWith('%%'));
+    if (start < 0 || !/^quadrantChart\b/i.test(lines[start])) return null;
+    const unq = s => {
+      const t = s.replace(/​/g, '').trim();
+      return t.length >= 2 && t[0] === '"' && t[t.length - 1] === '"' ? t.slice(1, -1) : t;
+    };
+    const pair = rest => {
+      const m = rest.match(/^(.*?)\s*-->\s*(.*)$/);
+      return m ? [unq(m[1]), unq(m[2])] : [unq(rest), ''];
+    };
+    const quadKey = { 'quadrant-1': 'tr', 'quadrant-2': 'tl', 'quadrant-3': 'bl', 'quadrant-4': 'br' };
+    const raw = { title: '', note: keepNote, axes: { top: '', bottom: '', left: '', right: '' }, quads: { tl: '', tr: '', bl: '', br: '' }, items: [] };
+    for (const line of lines.slice(start + 1)) {
+      let m;
+      if ((m = line.match(/^%%\s*footnote:\s*(.*)$/))) raw.note = m[1].trim();
+      else if (line.startsWith('%%')) continue;
+      else if ((m = line.match(/^title\s+(.+)$/))) raw.title = m[1].trim();
+      else if ((m = line.match(/^x-axis\s+(.+)$/))) [raw.axes.left, raw.axes.right] = pair(m[1]);
+      else if ((m = line.match(/^y-axis\s+(.+)$/))) [raw.axes.bottom, raw.axes.top] = pair(m[1]);
+      else if ((m = line.match(/^(quadrant-[1-4])\s+(.+)$/))) raw.quads[quadKey[m[1]]] = unq(m[2]);
+      else if ((m = line.match(/^(.+?)\s*:\s*\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]$/))) {
+        raw.items.push({ name: unq(m[1]), x: Number(m[2]), y: Number(m[3]) });
+      }
+    }
+    return raw;
+  }
+
+  /* Reads pasted text as a setup. Returns null when it is neither JSON nor Mermaid. Throws on broken JSON. */
+  function readSetup(text) {
+    const body = text.replace(/^\s*```[\w-]*\s*$/gm, '').trim();   // allows a pasted code fence
+    if (body.startsWith('{')) return JSON.parse(body);
+    return fromMermaid(body, state.note);
+  }
+
+  function loadSetup(raw) {
+    state = normalize(raw);
+    selectedId = null;
+    renderList();
+    fillFields();
+    changed();
+  }
+
+  /* where copying is blocked, the code goes into the box so it can be selected and copied by hand */
+  async function copySetup(text, what) {
+    if (await copyText(text)) {
+      setPasteNote(`${what} copied.`);
+    } else {
+      pasteBox.value = text;
+      setPasteNote('Copy is blocked in this view. The code is in the box. Select it and copy it.');
+    }
+  }
+  $('copy-json').addEventListener('click', () => copySetup(JSON.stringify(serialize(), null, 2), 'JSON'));
+  $('copy-mermaid').addEventListener('click', () => copySetup(toMermaid(state), 'Mermaid code'));
+
+  $('load-text').addEventListener('click', () => {
+    let raw = null, broken = false;
+    try { raw = readSetup(pasteBox.value); } catch (err) { broken = true; }
+    if (!raw || !Array.isArray(raw.items)) {
+      setPasteNote(broken
+        ? "That isn't valid JSON. Copy it again with Copy as JSON."
+        : "That isn't a quadrant chart setup. Paste JSON, or Mermaid code that starts with quadrantChart.");
+      return;
+    }
+    loadSetup(raw);
+    setPasteNote(`Loaded ${state.items.length} point${state.items.length === 1 ? '' : 's'}.`);
   });
 
   /* ---------- confirm dialog (built in: the browser's own confirm() is blocked in the viewer) ---------- */

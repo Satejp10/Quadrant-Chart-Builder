@@ -12,6 +12,7 @@ A single-file web app for making 2x2 quadrant charts. Open `Quadrant_Chart_Build
 - Fill in the title, footnote, axis ends, and corner names in the Labels card. Name and place points in the Points card.
 - In the Export card, download a PNG or SVG, or copy the SVG code.
 - Save project file keeps a copy of your chart. Open project file loads one back.
+- Copy as JSON or Copy as Mermaid puts the setup on the clipboard. Paste either one under Setup as text and press Load to rebuild the chart.
 
 Drafts save in this browser only. Save a project file to keep your work.
 
