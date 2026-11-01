@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quadrant Chart Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Plainchart tokens (mirror of tokens.css). One light theme, by design. */
+  :root{
+    color-scheme: light;
+    --bg:#ffffff; --card:#ffffff; --ink:#1f1f1f; --lede:#3a3a3a;
+    --muted:#737373; --faint:#a3a3a3; --border:#e8e8e8; --grid:#f1f1f1;
+    --axis:#dcdcdc; --hover:#fafafa;
+    --accent:#7F4BF3; --accent-soft:#f2ecff;
+    --display:'Instrument Sans',system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --sans:'Instrument Sans',system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --r:16px; --r-sm:5px; --maxw:980px;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:34px 22px 90px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+  /* header */
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:38px}
+  .mark{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;letter-spacing:-0.01em}
+  .mark .glyph{width:24px;height:24px;border-radius:6px;background:var(--ink);display:grid;place-items:center}
+  .mark .glyph::before{content:"";width:11px;height:11px;border-radius:50%;border:2.5px solid #fff}
+  .stamp{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums;text-align:right}
+  h1{font-family:var(--display);font-weight:600;font-size:clamp(2.2rem,6vw,3.4rem);line-height:1.04;letter-spacing:-0.015em;margin:0 0 16px;max-width:16ch}
+  .lede{font-size:clamp(1rem,2.2vw,1.12rem);color:var(--lede);max-width:62ch;margin:0 0 34px}
+
+  /* cards and eyebrows */
+  .card{border:1px solid var(--border);border-radius:var(--r);padding:24px 24px 26px;margin-bottom:18px;background:var(--card);min-width:0}
+  .card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px}
+  .eyebrow{display:flex;align-items:center;gap:10px;min-width:0}
+  .eyebrow .sq{width:15px;height:15px;border-radius:4px;flex:none;background:var(--accent)}
+  .eyebrow h2{font-family:var(--display);font-weight:600;font-size:1.5rem;letter-spacing:-0.01em;margin:0;line-height:1.1}
+  .sub{font-size:13px;color:var(--muted);margin:9px 0 18px}
+  .sub b{color:var(--lede);font-weight:500}
+  .tip{font-size:12.5px;color:var(--faint);white-space:nowrap}
+
+  /* chart */
+  .chart{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .chart svg{display:block;width:100%;height:auto;min-width:640px;cursor:crosshair;touch-action:none;user-select:none;-webkit-user-select:none}
+  .chart svg g.pt{cursor:grab;outline:none}
+  .chart svg g.pt:active{cursor:grabbing}
+  .chart svg .dot{fill-opacity:.62;transition:fill-opacity .15s}
+  .chart svg g.pt:hover .dot{fill-opacity:.88}
+  .chart svg .halo{opacity:0;transition:opacity .15s}
+  .chart svg g.pt.is-sel .halo,.chart svg g.pt:focus-visible .halo{opacity:1}
+  .chart svg g.pt:focus-visible .dot{stroke:var(--accent);stroke-width:2.5}
+
+  /* forms */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .field{display:flex;flex-direction:column;gap:6px;margin:0 0 14px;min-width:0}
+  .field > span{font-size:12px;font-weight:600;color:var(--muted)}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+  input[type=text],input[type=number]{font:inherit;font-size:14px;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:8px;padding:9px 11px;width:100%;min-width:0;transition:border-color .15s}
+  input[type=text]:hover,input[type=number]:hover{border-color:#cfcfcf}
+  input[type=text]:focus-visible,input[type=number]:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+  input::placeholder{color:var(--faint)}
+
+  /* points list */
+  .colhead,.row{display:grid;grid-template-columns:20px minmax(0,1fr) 62px 62px 32px;gap:8px;align-items:center}
+  .colhead{font-size:11.5px;font-weight:600;color:var(--faint);padding:0 8px 8px}
+  .colhead .r{text-align:right}
+  .list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+  .row{padding:6px 8px;border-radius:10px;transition:background .15s}
+  .row:hover{background:var(--hover)}
+  .row.sel{background:var(--hover);box-shadow:inset 2px 0 0 var(--accent)}
+  .row input[type=text]{padding:7px 9px}
+  .row input[type=number]{padding:7px 8px;text-align:right;font-variant-numeric:tabular-nums}
+  .sw{width:20px;height:20px;border-radius:6px;border:1px solid rgba(0,0,0,.08);padding:0;cursor:pointer}
+  .del{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--muted);font:inherit;font-size:17px;line-height:1;cursor:pointer}
+  .del:hover{color:var(--ink);border-color:#cfcfcf}
+  .empty{font-size:13px;color:var(--faint);padding:14px 8px}
+
+  /* buttons */
+  .btn{font:inherit;font-size:13.5px;font-weight:500;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:999px;padding:8px 14px;cursor:pointer;white-space:nowrap;transition:border-color .15s,background .15s}
+  .btn:hover{border-color:#c9c9c9}
+  .btn.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+  .btn.primary:hover{background:#3a3a3a;border-color:#3a3a3a}
+  .btn.danger{background:#c62d2d;border-color:#c62d2d;color:#fff}
+  .btn.danger:hover{background:#a82424;border-color:#a82424}
+  .tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+
+  /* confirm dialog */
+  .scrim{position:fixed;inset:0;background:rgba(31,31,31,.32);display:grid;place-items:center;padding:16px;z-index:50}
+  .dialog{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:24px;width:100%;max-width:420px}
+  .dialog h3{font-family:var(--display);font-weight:600;font-size:1.25rem;letter-spacing:-0.01em;line-height:1.2;margin:0 0 8px}
+  .dialog p{font-size:14px;color:var(--lede);margin:0}
+  .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:22px;flex-wrap:wrap}
+
+  /* labels on the chart you can rename by double-clicking */
+  .chart svg text[data-edit]{cursor:text}
+  .chart svg text[data-edit]:hover{opacity:.7}
+  .inline-edit{position:absolute;z-index:60;box-sizing:border-box;margin:0;padding:0 6px;border:1px solid var(--accent);border-radius:6px;background:#fff;color:var(--ink);outline:none;line-height:1.2}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 18px}
+
+  /* export preview */
+  .preview{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fff}
+  .preview img{display:block;width:100%;height:auto}
+  .hint{font-size:12px;color:var(--faint);margin:12px 0 0}
+
+  footer{margin-top:34px;font-size:12px;color:var(--faint);line-height:1.6;border-top:1px solid var(--border);padding-top:18px}
+
+  @media(max-width:600px){
+    .wrap{padding:26px 16px 70px}
+    .card{padding:20px 16px 22px}
+    .eyebrow h2{font-size:1.3rem}
+    .tip{display:none}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="mark"><span class="glyph" aria-hidden="true"></span>Quadrant builder</div>
+    <div class="stamp" id="status" aria-live="polite"></div>
+  </header>
+
+  <h1>Build a quadrant chart</h1>
+  <p class="lede">Click the chart to add a point. Drag a point to move it, then name it in the Points list. Export a PNG or SVG when it reads right.</p>
+
+  <section class="card" aria-labelledby="h-chart">
+    <div class="card-h">
+      <div class="eyebrow"><span class="sq" aria-hidden="true"></span><h2 id="h-chart">Chart</h2></div>
+      <div class="tools">
+        <span class="tip">Click to add · drag to move</span>
+        <button class="btn" id="chart-dl" type="button" hidden>Download PNG</button>
+        <button class="btn" id="clear-all" type="button">Clear all</button>
+      </div>
+    </div>
+    <p class="sub" id="sub"></p>
+    <div class="chart" id="chart"></div>
+    <p class="hint">Double-click any label to rename it.</p>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <div class="card-h"><div class="eyebrow"><span class="sq" aria-hidden="true"></span><h2>Labels</h2></div></div>
+      <div style="margin-top:18px">
+        <label class="field"><span>Title</span><input id="f-title" type="text" maxlength="90" autocomplete="off"></label>
+        <label class="field"><span>Footnote</span><input id="f-note" type="text" maxlength="200" autocomplete="off"></label>
+      </div>
+      <div class="pair">
+        <label class="field"><span>Top end</span><input id="f-top" type="text" maxlength="40" autocomplete="off"></label>
+        <label class="field"><span>Bottom end</span><input id="f-bottom" type="text" maxlength="40" autocomplete="off"></label>
+        <label class="field"><span>Left end</span><input id="f-left" type="text" maxlength="40" autocomplete="off"></label>
+        <label class="field"><span>Right end</span><input id="f-right" type="text" maxlength="40" autocomplete="off"></label>
+      </div>
+      <div class="pair">
+        <label class="field"><span>Top left corner</span><input id="f-tl" type="text" maxlength="40" autocomplete="off"></label>
+        <label class="field"><span>Top right corner</span><input id="f-tr" type="text" maxlength="40" autocomplete="off"></label>
+        <label class="field"><span>Bottom left corner</span><input id="f-bl" type="text" maxlength="40" autocomplete="off"></label>
+        <label class="field"><span>Bottom right corner</span><input id="f-br" type="text" maxlength="40" autocomplete="off"></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h">
+        <div class="eyebrow"><span class="sq" aria-hidden="true"></span><h2>Points</h2></div>
+        <button class="btn" id="add" type="button">Add point</button>
+      </div>
+      <p class="sub">Across runs left to right. Up runs bottom to top. Both go from 0 to 100.</p>
+      <div class="colhead" aria-hidden="true"><span></span><span>Name</span><span class="r">Across</span><span class="r">Up</span><span></span></div>
+      <ul class="list" id="list"></ul>
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="h-export">
+    <div class="card-h"><div class="eyebrow"><span class="sq" aria-hidden="true"></span><h2 id="h-export">Export</h2></div></div>
+    <div class="actions">
+      <button class="btn primary" id="dl-png" type="button" hidden>Download PNG</button>
+      <button class="btn" id="dl-svg" type="button" hidden>Download SVG</button>
+      <button class="btn" id="copy-svg" type="button">Copy SVG code</button>
+      <button class="btn" id="save-json" type="button" hidden>Save project file</button>
+      <button class="btn" id="open-json" type="button">Open project file</button>
+      <input id="file" type="file" accept="application/json,.json" hidden>
+    </div>
+    <div class="preview" id="preview-box" hidden><img id="preview" alt="Preview of the chart as a PNG"></div>
+    <p class="hint">If nothing downloads, right-click the preview and choose Save image as.</p>
+  </section>
+
+  <footer>Drafts save in this browser only. Save a project file to keep a copy you can open later.</footer>
+
+  <div class="scrim" id="scrim" hidden>
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title" aria-describedby="dlg-text">
+      <h3 id="dlg-title">Clear everything?</h3>
+      <p id="dlg-text">This removes every point and clears the title, labels, and footnote. This can't be undone.</p>
+      <div class="dialog-actions">
+        <button class="btn" id="dlg-cancel" type="button">Cancel</button>
+        <button class="btn danger" id="dlg-ok" type="button">Clear everything</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ---------- canvas and plot geometry (SVG units) ---------- */
+  const W = 960, H = 700;
+  const P = { x0: 210, x1: 750, y0: 124, y1: 604 };
+  const CX = (P.x0 + P.x1) / 2, CY = (P.y0 + P.y1) / 2;
+
+  /* Plainchart tokens used inside the SVG, written as literal values so exports keep their colors */
+  const C = { bg: '#ffffff', ink: '#1f1f1f', muted: '#737373', faint: '#a3a3a3', grid: '#f1f1f1', axis: '#dcdcdc', accent: '#7F4BF3' };
+  const SANS = "'Instrument Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+  const DISPLAY = "'Instrument Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+  /* Plainchart categorical entity colors (tokens.css) for the points */
+  const PALETTE = ['#2243e6', '#cc785c', '#34a853', '#ff6900', '#eb3568', '#7c4bf3', '#0089f4', '#9aa0a6'];
+  const KEY = 'quadrant-chart-builder:draft:v1';
+
+  const EXAMPLE = {
+    title: 'Quality vs. taste',
+    note: 'Example chart. Where each point sits is a judgment call.',
+    axes: { top: 'Well constructed', bottom: 'Terribly constructed', left: 'I hate it', right: 'I like it' },
+    quads: { tl: 'Well made, not for me', tr: 'Well made and loved', bl: 'Skip it', br: 'Loved, badly made' },
+    items: [
+      { name: 'Cast-iron pan', x: 0.86, y: 0.9 },
+      { name: 'Wool coat', x: 0.2, y: 0.84 },
+      { name: 'Old hiking boots', x: 0.7, y: 0.68 },
+      { name: 'Mystery paperback', x: 0.8, y: 0.2 },
+      { name: 'Gift-shop umbrella', x: 0.18, y: 0.14 }
+    ]
+  };
+
+  /* ---------- helpers ---------- */
+  let uid = 0;
+  const newId = () => 'p' + (++uid);
+  const $ = id => document.getElementById(id);
+  const clamp01 = v => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.5);
+  const pct = v => Math.round(clamp01(v) * 100);
+  const round3 = v => Math.round(clamp01(v) * 1000) / 1000;
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const up = s => String(s ?? '').toUpperCase();
+  const toX = v => P.x0 + v * (P.x1 - P.x0);
+  const toY = v => P.y1 - v * (P.y1 - P.y0);
+  const fromX = px => (px - P.x0) / (P.x1 - P.x0);
+  const fromY = py => (P.y1 - py) / (P.y1 - P.y0);
+  const inPlot = pt => pt.x >= P.x0 && pt.x <= P.x1 && pt.y >= P.y0 && pt.y <= P.y1;
+
+  /* ---------- text measuring and wrapping ----------
+     Widths come from the SVG engine itself (a hidden <text> element), so the wrap matches what is drawn.
+     Canvas font strings are not parsed the same way in every browser; where they fail, labels wrapped too late. */
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const measurer = document.createElementNS(SVGNS, 'svg');
+  measurer.setAttribute('aria-hidden', 'true');
+  measurer.style.cssText = 'position:absolute;left:-9999px;top:0;width:0;height:0;overflow:hidden;visibility:hidden';
+  const probe = document.createElementNS(SVGNS, 'text');
+  measurer.appendChild(probe);
+  document.body.appendChild(measurer);
+  const textW = (str, size, weight, family) => {
+    probe.setAttribute('font-family', family);
+    probe.setAttribute('font-size', size);
+    probe.setAttribute('font-weight', weight);
+    probe.textContent = str;
+    return probe.getComputedTextLength();
+  };
+  const wrapCache = new Map();
+  function wrap(str, maxW, size, weight, family) {
+    const key = [str, maxW, size, weight, family].join('|');
+    if (wrapCache.has(key)) return wrapCache.get(key);
+    const words = String(str ?? '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    let lines;
+    if (!words.length) {
+      lines = [''];
+    } else {
+      const fits = s => textW(s, size, weight, family) <= maxW;
+      // a single word wider than the box is broken into pieces that fit
+      const pieces = [];
+      for (const w of words) {
+        if (fits(w)) { pieces.push(w); continue; }
+        let chunk = '';
+        for (const ch of w) {
+          if (!chunk || fits(chunk + ch)) chunk += ch;
+          else { pieces.push(chunk); chunk = ch; }
+        }
+        if (chunk) pieces.push(chunk);
+      }
+      lines = [];
+      let cur = '';
+      for (const w of pieces) {
+        const trial = cur ? cur + ' ' + w : w;
+        if (!cur || fits(trial)) cur = trial;
+        else { lines.push(cur); cur = w; }
+      }
+      lines.push(cur);
+    }
+    if (wrapCache.size > 800) wrapCache.clear();
+    wrapCache.set(key, lines);
+    return lines;
+  }
+  /* v: 'first' = y is the first baseline, 'last' = y is the last baseline, 'middle' = y is the vertical centre */
+  function textBlock(lines, x, y, o) {
+    if (!lines.some(t => t.trim())) return '';
+    const fs = o.size, lh = fs * (o.lh || 1.3);
+    const span = (lines.length - 1) * lh;
+    const y0 = o.v === 'last' ? y - span : o.v === 'middle' ? y - span / 2 + fs * 0.36 : y;
+    const attr = [
+      `font-family="${o.family || SANS}"`, `font-size="${fs}"`, `font-weight="${o.weight || 400}"`,
+      `fill="${o.fill || C.ink}"`, `text-anchor="${o.anchor || 'start'}"`
+    ];
+    if (o.ls) attr.push(`letter-spacing="${o.ls}"`);
+    if (o.halo) attr.push(`stroke="#ffffff" stroke-width="${o.halo}" stroke-linejoin="round" paint-order="stroke"`);
+    if (o.edit) attr.push(`data-edit="${o.edit}"`);
+    const tspans = lines.map((t, i) => `<tspan x="${x}" y="${(y0 + i * lh).toFixed(1)}">${esc(t)}</tspan>`).join('');
+    return `<text ${attr.join(' ')}>${tspans}</text>`;
+  }
+
+  /* ---------- the chart as SVG markup (used on the page and in every export) ---------- */
+  function chartSVG(forExport) {
+    const s = state, out = [];
+    const add = t => out.push(t);
+    const AX = { size: 13, weight: 600, fill: C.muted };
+    const QN = { size: 11, weight: 700, fill: C.muted, ls: 0.9 };
+
+    add(`<rect width="${W}" height="${H}" fill="${C.bg}"/>`);
+    /* on the page, empty labels show a faint placeholder so they can still be double-clicked; exports skip them */
+    const ed = key => (forExport ? {} : { edit: key });
+    const shown = (val, ph) => val || (forExport ? '' : ph);
+    add(textBlock(wrap(shown(s.title, 'Add a title'), 880, 26, 600, DISPLAY), 40, 58, { size: 26, weight: 600, family: DISPLAY, lh: 1.2, fill: s.title ? C.ink : C.faint, ...ed('f-title') }));
+
+    /* dotted quarter gridlines, then the solid cross */
+    for (const t of [0.25, 0.75]) {
+      add(`<line x1="${toX(t)}" y1="${P.y0}" x2="${toX(t)}" y2="${P.y1}" stroke="${C.grid}" stroke-width="1" stroke-dasharray="2 5"/>`);
+      add(`<line x1="${P.x0}" y1="${toY(t)}" x2="${P.x1}" y2="${toY(t)}" stroke="${C.grid}" stroke-width="1" stroke-dasharray="2 5"/>`);
+    }
+    add(`<line x1="${P.x0}" y1="${CY}" x2="${P.x1}" y2="${CY}" stroke="${C.axis}" stroke-width="1.5"/>`);
+    add(`<line x1="${CX}" y1="${P.y0}" x2="${CX}" y2="${P.y1}" stroke="${C.axis}" stroke-width="1.5"/>`);
+
+    /* axis ends */
+    const axisFill = val => (val ? AX.fill : C.faint);
+    const topT = shown(s.axes.top, 'Top label'), bottomT = shown(s.axes.bottom, 'Bottom label');
+    const leftT = shown(s.axes.left, 'Left label'), rightT = shown(s.axes.right, 'Right label');
+    if (topT) add(textBlock(wrap(topT, 380, 13, 600, SANS), CX, P.y0 - 18, { ...AX, fill: axisFill(s.axes.top), anchor: 'middle', v: 'last', ...ed('f-top') }));
+    if (bottomT) add(textBlock(wrap(bottomT, 380, 13, 600, SANS), CX, P.y1 + 36, { ...AX, fill: axisFill(s.axes.bottom), anchor: 'middle', ...ed('f-bottom') }));
+    if (leftT) add(textBlock(wrap(leftT, 168, 13, 600, SANS), P.x0 - 16, CY, { ...AX, fill: axisFill(s.axes.left), anchor: 'end', v: 'middle', ...ed('f-left') }));
+    if (rightT) add(textBlock(wrap(rightT, 168, 13, 600, SANS), P.x1 + 16, CY, { ...AX, fill: axisFill(s.axes.right), anchor: 'start', v: 'middle', ...ed('f-right') }));
+
+    /* corner names */
+    const corner = (val, ph) => up(shown(val, ph));
+    add(textBlock(wrap(corner(s.quads.tl, 'Corner label'), 220, 11, 700, SANS), P.x0 + 14, P.y0 + 26, { ...QN, fill: s.quads.tl ? C.muted : C.faint, anchor: 'start', ...ed('f-tl') }));
+    add(textBlock(wrap(corner(s.quads.tr, 'Corner label'), 220, 11, 700, SANS), P.x1 - 14, P.y0 + 26, { ...QN, fill: s.quads.tr ? C.muted : C.faint, anchor: 'end', ...ed('f-tr') }));
+    add(textBlock(wrap(corner(s.quads.bl, 'Corner label'), 220, 11, 700, SANS), P.x0 + 14, P.y1 - 16, { ...QN, fill: s.quads.bl ? C.muted : C.faint, anchor: 'start', v: 'last', ...ed('f-bl') }));
+    add(textBlock(wrap(corner(s.quads.br, 'Corner label'), 220, 11, 700, SANS), P.x1 - 14, P.y1 - 16, { ...QN, fill: s.quads.br ? C.muted : C.faint, anchor: 'end', v: 'last', ...ed('f-br') }));
+
+    /* points */
+    for (const p of s.items) {
+      const cx = toX(p.x), cy = toY(p.y);
+      const name = p.name || 'Untitled';
+      const flip = p.x > 0.74;
+      if (forExport) {
+        add('<g>');
+      } else {
+        const sel = p.id === selectedId ? ' is-sel' : '';
+        add(`<g class="pt${sel}" data-id="${p.id}" tabindex="0" role="button" aria-label="${esc(name)}, ${pct(p.x)} across and ${pct(p.y)} up. Arrow keys move it.">`);
+        add(`<circle class="halo" cx="${cx}" cy="${cy}" r="13" fill="none" stroke="${C.accent}" stroke-width="2"/>`);
+      }
+      add(`<circle class="dot" cx="${cx}" cy="${cy}" r="8" fill="${p.color}" fill-opacity="0.62" stroke="${p.color}" stroke-width="1.5"/>`);
+      add(textBlock(wrap(name, 230, 14, 600, SANS), flip ? cx - 17 : cx + 17, cy + 5, { size: 14, weight: 600, anchor: flip ? 'end' : 'start', halo: 4 }));
+      add('</g>');
+    }
+
+    add(textBlock(wrap(shown(s.note, 'Add a footnote'), 880, 12.5, 400, SANS), 40, H - 26, { size: 12.5, weight: 400, fill: C.faint, v: 'last', ...ed('f-note') }));
+
+    const label = forExport ? '' : ` role="group" aria-label="Quadrant chart, ${s.items.length} point${s.items.length === 1 ? '' : 's'}"`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${SANS}"${label}>${out.join('')}</svg>`;
+  }
+
+  /* ---------- state ---------- */
+  let state = null;
+  let selectedId = null;
+  let drag = null;
+  let dl = null;                                   // downloads namespace (viewer only)
+  let previewURL = null, previewSeq = 0, previewTimer = null;
+  let saveTimer = null;
+  const inViewer = !!(window.claude && typeof window.claude.use === 'function');
+
+  const chartBox = $('chart'), list = $('list'), statusEl = $('status');
+  const preview = $('preview'), previewBox = $('preview-box'), fileInput = $('file');
+
+  function normalize(raw) {
+    const text = (v, fallback, max) => (typeof v === 'string' ? v : fallback).slice(0, max);
+    const axes = raw.axes || {}, quads = raw.quads || {};
+    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 80);
+    return {
+      title: text(raw.title, 'Untitled chart', 90),
+      note: text(raw.note, '', 200),
+      axes: {
+        top: text(axes.top, 'Top', 40), bottom: text(axes.bottom, 'Bottom', 40),
+        left: text(axes.left, 'Left', 40), right: text(axes.right, 'Right', 40)
+      },
+      quads: {
+        tl: text(quads.tl, '', 40), tr: text(quads.tr, '', 40),
+        bl: text(quads.bl, '', 40), br: text(quads.br, '', 40)
+      },
+      items: items.filter(p => p && typeof p === 'object').map((p, i) => ({
+        id: newId(),
+        name: text(p.name, 'Untitled', 40),
+        x: clamp01(Number(p.x)),
+        y: clamp01(Number(p.y)),
+        color: PALETTE.includes(p.color) ? p.color : PALETTE[i % PALETTE.length]
+      }))
+    };
+  }
+
+  function serialize() {
+    return {
+      format: 'quadrant-chart',
+      version: 1,
+      title: state.title,
+      note: state.note,
+      axes: { ...state.axes },
+      quads: { ...state.quads },
+      items: state.items.map(p => ({ name: p.name, x: round3(p.x), y: round3(p.y), color: p.color }))
+    };
+  }
+
+  function loadDraft() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      return raw ? normalize(JSON.parse(raw)) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  /* ---------- rendering ---------- */
+  function setStatus(msg) { statusEl.textContent = msg; }
+
+  function renderChart() { chartBox.innerHTML = chartSVG(false); }
+
+  function renderSub() {
+    const t = state.axes.top, r = state.axes.right;
+    $('sub').innerHTML = t || r
+      ? `Top: <b>${esc(t || '—')}</b> · Right: <b>${esc(r || '—')}</b>`
+      : 'Add labels below to say what the top and right mean.';
+  }
+
+  function renderList() {
+    if (!state.items.length) {
+      list.innerHTML = '<li class="empty">No points yet. Click the chart or press Add point.</li>';
+      return;
+    }
+    list.innerHTML = state.items.map(p => `
+      <li class="row${p.id === selectedId ? ' sel' : ''}" data-id="${p.id}">
+        <button class="sw" type="button" data-act="color" style="background:${p.color}" aria-label="Change color" title="Change color"></button>
+        <input type="text" maxlength="40" value="${esc(p.name)}" data-field="name" aria-label="Point name" autocomplete="off">
+        <input type="number" min="0" max="100" step="1" value="${pct(p.x)}" data-field="x" aria-label="Across, 0 to 100">
+        <input type="number" min="0" max="100" step="1" value="${pct(p.y)}" data-field="y" aria-label="Up, 0 to 100">
+        <button class="del" type="button" data-act="del" aria-label="Delete point" title="Delete point">×</button>
+      </li>`).join('');
+  }
+
+  function markSelected() {
+    chartBox.querySelectorAll('g.pt').forEach(g => g.classList.toggle('is-sel', g.dataset.id === selectedId));
+    list.querySelectorAll('li.row').forEach(r => r.classList.toggle('sel', r.dataset.id === selectedId));
+  }
+
+  function syncRow(id) {
+    const p = state.items.find(i => i.id === id);
+    const row = list.querySelector(`li.row[data-id="${id}"]`);
+    if (!p || !row) return;
+    for (const field of ['x', 'y']) {
+      const input = row.querySelector(`input[data-field="${field}"]`);
+      if (input && document.activeElement !== input) input.value = pct(p[field]);
+    }
+  }
+
+  function focusName(id) {
+    const input = list.querySelector(`li.row[data-id="${id}"] input[data-field="name"]`);
+    if (input) { input.focus(); input.select(); }
+  }
+
+  /* ---------- editing ---------- */
+  function changed() { renderChart(); renderSub(); refreshPreviewSoon(); scheduleSave(); }
+
+  function selectPoint(id) {
+    if (selectedId === id) return;
+    selectedId = id;
+    markSelected();
+  }
+
+  function addPoint(x, y, focus) {
+    const p = {
+      id: newId(), name: 'New point',
+      x: clamp01(x), y: clamp01(y),
+      color: PALETTE[state.items.length % PALETTE.length]
+    };
+    state.items.push(p);
+    selectedId = p.id;
+    renderList();
+    changed();
+    if (focus) focusName(p.id);
+    return p;
+  }
+
+  function removePoint(id) {
+    state.items = state.items.filter(p => p.id !== id);
+    if (selectedId === id) selectedId = null;
+    renderList();
+    changed();
+  }
+
+  const fields = {
+    'f-title':  { get: () => state.title,       set: v => { state.title = v; } },
+    'f-note':   { get: () => state.note,        set: v => { state.note = v; } },
+    'f-top':    { get: () => state.axes.top,    set: v => { state.axes.top = v; } },
+    'f-bottom': { get: () => state.axes.bottom, set: v => { state.axes.bottom = v; } },
+    'f-left':   { get: () => state.axes.left,   set: v => { state.axes.left = v; } },
+    'f-right':  { get: () => state.axes.right,  set: v => { state.axes.right = v; } },
+    'f-tl':     { get: () => state.quads.tl,    set: v => { state.quads.tl = v; } },
+    'f-tr':     { get: () => state.quads.tr,    set: v => { state.quads.tr = v; } },
+    'f-bl':     { get: () => state.quads.bl,    set: v => { state.quads.bl = v; } },
+    'f-br':     { get: () => state.quads.br,    set: v => { state.quads.br = v; } }
+  };
+  function fillFields() { for (const [id, f] of Object.entries(fields)) $(id).value = f.get(); }
+  for (const [id, f] of Object.entries(fields)) {
+    $(id).addEventListener('input', e => { f.set(e.target.value); changed(); });
+  }
+
+  $('add').addEventListener('click', () => {
+    const k = state.items.length;
+    addPoint(0.5 + ((k % 5) - 2) * 0.06, 0.5 + ((k % 3) - 1) * 0.08, true);
+  });
+
+  /* ---------- chart: pointer (click to add, drag to move) ---------- */
+  function svgPoint(e) {
+    const svg = chartBox.querySelector('svg');
+    const ctm = svg && svg.getScreenCTM();
+    if (!ctm) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    return pt.matrixTransform(ctm.inverse());
+  }
+
+  let lastKey = null, lastKeyAt = 0;   // remembers the last press, to spot a double-press (rename)
+
+  chartBox.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const start = svgPoint(e);
+    if (!start) return;
+    const g = e.target.closest('g.pt');
+    const label = e.target.closest('[data-edit]');
+    const id = g ? g.dataset.id : null;
+    const key = g ? 'P:' + id : label ? 'L:' + label.dataset.edit : null;
+    const now = performance.now();
+    if (key && key === lastKey && now - lastKeyAt < 500) {
+      // second press on the same point or label: rename it. Deferred, so this press's focus change
+      // happens first and the rename box keeps focus.
+      lastKey = null;
+      drag = null;
+      setTimeout(() => (id ? renamePoint(id) : renameField(label.dataset.edit)), 0);
+      return;
+    }
+    lastKey = key;
+    lastKeyAt = now;
+    drag = { id, label: !!label, pid: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false, start };
+    if (id) selectPoint(id);
+    // no preventDefault and no pointer capture here: the normal focus change is what closes an open rename box,
+    // and capture is only needed once a drag really starts (see pointermove)
+  });
+
+  chartBox.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.pid) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) return;
+    if (!drag.moved) chartBox.setPointerCapture(e.pointerId);   // keep getting moves outside the chart
+    drag.moved = true;
+    if (!drag.id) return;
+    const pt = svgPoint(e);
+    const p = pt && state.items.find(i => i.id === drag.id);
+    if (!p) return;
+    p.x = clamp01(fromX(pt.x));
+    p.y = clamp01(fromY(pt.y));
+    renderChart();
+    syncRow(p.id);
+  });
+
+  function endPointer(e) {
+    if (!drag || e.pointerId !== drag.pid) return;
+    const d = drag;
+    drag = null;
+    if (d.moved) { lastKey = null; if (d.id) changed(); return; }
+    if (!d.id && !d.label && inPlot(d.start)) addPoint(fromX(d.start.x), fromY(d.start.y), true);
+  }
+  chartBox.addEventListener('pointerup', endPointer);
+  chartBox.addEventListener('pointercancel', endPointer);
+
+  /* ---------- chart: keyboard (focus a point, arrows move it) ---------- */
+  chartBox.addEventListener('keydown', e => {
+    const g = e.target.closest('g.pt');
+    if (!g) return;
+    const id = g.dataset.id;
+    const p = state.items.find(i => i.id === id);
+    if (!p) return;
+    const step = e.shiftKey ? 0.05 : 0.01;
+    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+    if (moves[e.key]) {
+      e.preventDefault();
+      p.x = clamp01(p.x + moves[e.key][0]);
+      p.y = clamp01(p.y + moves[e.key][1]);
+      selectedId = id;
+      renderChart();
+      markSelected();
+      chartBox.querySelector(`g.pt[data-id="${id}"]`)?.focus({ preventScroll: true });
+      syncRow(id);
+      refreshPreviewSoon();
+      scheduleSave();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      removePoint(id);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      focusName(id);
+    }
+  });
+
+  /* ---------- points list ---------- */
+  list.addEventListener('input', e => {
+    const row = e.target.closest('li.row');
+    const p = row && state.items.find(i => i.id === row.dataset.id);
+    if (!p) return;
+    const field = e.target.dataset.field;
+    if (field === 'name') {
+      p.name = e.target.value;
+    } else if (field === 'x' || field === 'y') {
+      const n = parseFloat(e.target.value);
+      if (!Number.isFinite(n)) return;
+      p[field] = clamp01(n / 100);
+    } else {
+      return;
+    }
+    renderChart();
+    refreshPreviewSoon();
+    scheduleSave();
+  });
+
+  list.addEventListener('change', e => {
+    const row = e.target.closest('li.row');
+    const p = row && state.items.find(i => i.id === row.dataset.id);
+    const field = e.target.dataset.field;
+    if (p && (field === 'x' || field === 'y')) e.target.value = pct(p[field]);
+  });
+
+  list.addEventListener('focusin', e => {
+    const row = e.target.closest('li.row');
+    if (row) selectPoint(row.dataset.id);
+  });
+
+  list.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    const row = btn && btn.closest('li.row');
+    const p = row && state.items.find(i => i.id === row.dataset.id);
+    if (!p) return;
+    if (btn.dataset.act === 'del') {
+      removePoint(p.id);
+    } else if (btn.dataset.act === 'color') {
+      p.color = PALETTE[(PALETTE.indexOf(p.color) + 1) % PALETTE.length];
+      btn.style.background = p.color;
+      renderChart();
+      refreshPreviewSoon();
+      scheduleSave();
+    }
+  });
+
+  /* ---------- export ---------- */
+  function baseName() {
+    const slug = String(state.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+    return slug || 'quadrant-chart';
+  }
+
+  /* Draws the SVG onto a canvas and returns a PNG blob. */
+  function renderPNG(scale) {
+    const svgURL = URL.createObjectURL(new Blob([chartSVG(true)], { type: 'image/svg+xml;charset=utf-8' }));
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(W * scale);
+          canvas.height = Math.round(H * scale);
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(blob => {
+            URL.revokeObjectURL(svgURL);
+            if (blob) resolve(blob); else reject(new Error('png'));
+          }, 'image/png');
+        } catch (err) {
+          URL.revokeObjectURL(svgURL);
+          reject(err);
+        }
+      };
+      img.onerror = () => { URL.revokeObjectURL(svgURL); reject(new Error('svg image')); };
+      img.src = svgURL;
+    });
+  }
+
+  function refreshPreviewSoon() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(refreshPreview, 350);
+  }
+
+  async function refreshPreview() {
+    const seq = ++previewSeq;
+    try {
+      const png = await renderPNG(1.5);
+      if (seq !== previewSeq) return;
+      const url = URL.createObjectURL(png);
+      const old = previewURL;
+      previewURL = url;
+      preview.src = url;
+      previewBox.hidden = false;
+      if (old) URL.revokeObjectURL(old);
+    } catch (err) {
+      /* keep the last good preview */
+    }
+  }
+
+  /* Inside the published page, downloads go through the viewer's confirmation (the downloads capability).
+     In a plain copy of this file, a normal download link is used. */
+  async function saveFile(name, data, type) {
+    if (inViewer) {
+      if (!dl) { setStatus('Saving is not available in this view.'); return; }
+      try {
+        await dl.save({ filename: name, data });
+        setStatus('Saved ' + name);
+      } catch (err) {
+        setStatus(err && err.code === 'declined' ? 'Not saved.' : ((err && err.message) || 'Could not save here.'));
+      }
+      return;
+    }
+    const blob = data instanceof Blob ? data : new Blob([data], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    setStatus('Downloaded ' + name);
+  }
+
+  $('dl-png').addEventListener('click', async () => {
+    setStatus('Making PNG…');
+    try {
+      const png = await renderPNG(2);
+      await saveFile(baseName() + '.png', png, 'image/png');
+    } catch (err) {
+      setStatus('Could not make a PNG here. Try the SVG, or right-click the preview.');
+    }
+  });
+
+  $('dl-svg').addEventListener('click', () => saveFile(baseName() + '.svg', chartSVG(true), 'image/svg+xml'));
+  /* the chart header button saves the same PNG as the export card */
+  $('chart-dl').addEventListener('click', () => $('dl-png').click());
+
+  $('save-json').addEventListener('click', () => saveFile(baseName() + '.json', JSON.stringify(serialize(), null, 2), 'application/json'));
+
+  $('copy-svg').addEventListener('click', async () => {
+    const text = chartSVG(true);
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus('SVG code copied.');
+    } catch (err) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+      ta.remove();
+      setStatus(ok ? 'SVG code copied.' : 'Copy is blocked in this view.');
+    }
+  });
+
+  $('open-json').addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    try {
+      const raw = JSON.parse(await f.text());
+      if (!raw || !Array.isArray(raw.items)) throw new Error('not a chart');
+      state = normalize(raw);
+      selectedId = null;
+      renderList();
+      fillFields();
+      changed();
+      setStatus('Opened ' + f.name);
+    } catch (err) {
+      setStatus("That file isn't a quadrant chart project.");
+    } finally {
+      fileInput.value = '';
+    }
+  });
+
+  /* ---------- confirm dialog (built in: the browser's own confirm() is blocked in the viewer) ---------- */
+  const scrim = $('scrim'), dlgOk = $('dlg-ok'), dlgCancel = $('dlg-cancel');
+  let dlgAction = null, dlgReturn = null;
+
+  function openDialog(action, returnTo) {
+    dlgAction = action;
+    dlgReturn = returnTo || null;
+    scrim.hidden = false;
+    dlgCancel.focus();                       // the safe choice is focused by default
+  }
+  function closeDialog() {
+    scrim.hidden = true;
+    dlgAction = null;
+    if (dlgReturn) dlgReturn.focus();
+    dlgReturn = null;
+  }
+  dlgCancel.addEventListener('click', closeDialog);
+  dlgOk.addEventListener('click', () => {
+    const act = dlgAction;
+    closeDialog();
+    if (act) act();
+  });
+  scrim.addEventListener('click', e => { if (e.target === scrim) closeDialog(); });
+  scrim.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeDialog();
+    } else if (e.key === 'Tab') {
+      const order = [dlgCancel, dlgOk];
+      const i = order.indexOf(document.activeElement);
+      const next = e.shiftKey ? (i <= 0 ? order.length - 1 : i - 1) : (i === order.length - 1 ? 0 : i + 1);
+      e.preventDefault();
+      order[next].focus();
+    }
+  });
+
+  /* ---------- clear all: back to a blank chart ---------- */
+  function clearAll() {
+    state = normalize({
+      title: '', note: '',
+      axes: { top: '', bottom: '', left: '', right: '' },
+      quads: { tl: '', tr: '', bl: '', br: '' },
+      items: []
+    });
+    selectedId = null;
+    renderList();
+    fillFields();
+    renderChart();
+    renderSub();
+    refreshPreviewSoon();
+    clearTimeout(saveTimer);
+    persist('Cleared. Starting fresh.');
+  }
+  $('clear-all').addEventListener('click', () => openDialog(clearAll, $('clear-all')));
+
+  /* ---------- rename on the chart: double-click a label (or a point) to edit it in place ---------- */
+  const PH = {
+    'f-title': 'Add a title', 'f-note': 'Add a footnote',
+    'f-top': 'Top label', 'f-bottom': 'Bottom label', 'f-left': 'Left label', 'f-right': 'Right label',
+    'f-tl': 'Corner label', 'f-tr': 'Corner label', 'f-bl': 'Corner label', 'f-br': 'Corner label'
+  };
+  let inline = null;                       // the open rename box: { input, apply }
+
+  function syncName(id) {
+    const p = state.items.find(i => i.id === id);
+    const input = list.querySelector(`li.row[data-id="${id}"] input[data-field="name"]`);
+    if (p && input && document.activeElement !== input) input.value = p.name;
+  }
+
+  function openInline(anchor, value, placeholder, maxLen, apply) {
+    finishInline(true);
+    const svg = chartBox.querySelector('svg');
+    if (!svg || !anchor) return;
+    const scale = svg.getBoundingClientRect().width / W;   // SVG units to screen pixels
+    const r = anchor.getBoundingClientRect();
+    const mode = anchor.getAttribute('text-anchor') || 'start';
+    const cs = getComputedStyle(anchor);
+    const width = Math.max(r.width + 20, 140);
+    const height = Math.max(26, r.height + 8);
+    let left = r.left;
+    if (mode === 'middle') left = r.left + r.width / 2 - width / 2;
+    if (mode === 'end') left = r.right - width;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'inline-edit';
+    input.value = value;
+    input.placeholder = placeholder;
+    input.maxLength = maxLen;
+    input.autocomplete = 'off';
+    input.setAttribute('aria-label', placeholder);
+    input.style.left = (left + window.scrollX) + 'px';
+    input.style.top = (r.top + r.height / 2 - height / 2 + window.scrollY) + 'px';
+    input.style.width = width + 'px';
+    input.style.height = height + 'px';
+    input.style.fontFamily = cs.fontFamily;
+    input.style.fontWeight = cs.fontWeight;
+    input.style.fontSize = (parseFloat(anchor.getAttribute('font-size')) * scale) + 'px';
+    input.style.textAlign = mode === 'end' ? 'right' : mode === 'middle' ? 'center' : 'left';
+    document.body.appendChild(input);
+    inline = { input, apply };
+    input.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); finishInline(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finishInline(false); }
+    });
+    input.addEventListener('blur', () => finishInline(true));
+    input.focus();
+    input.select();
+  }
+
+  function finishInline(save) {
+    if (!inline) return;
+    const { input, apply } = inline;
+    inline = null;                         // clear first: removing the box can fire blur
+    const value = input.value;
+    input.remove();
+    if (save) apply(value);
+  }
+
+  function renamePoint(id) {
+    const p = state.items.find(i => i.id === id);
+    const text = chartBox.querySelector(`g.pt[data-id="${id}"] text`);
+    if (!p || !text) return;
+    openInline(text, p.name, 'Point name', 40, v => {
+      if (!state.items.includes(p)) return;
+      p.name = v.trim() || 'Untitled';
+      syncName(p.id);
+      changed();
+    });
+  }
+
+  function renameField(key) {
+    const f = fields[key];
+    const el = chartBox.querySelector(`[data-edit="${key}"]`);
+    if (!f || !el) return;
+    openInline(el, f.get(), PH[key], $(key).maxLength, v => {
+      f.set(v.trim());
+      changed();
+      fillFields();
+    });
+  }
+
+  window.addEventListener('resize', () => finishInline(true));
+
+  /* ---------- autosave in this browser (a convenience; project files are the real copy) ---------- */
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(persist, 300);
+  }
+  function persist(msg) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(serialize()));
+      setStatus(msg || 'Saved in this browser');
+    } catch (err) {
+      setStatus('Not saved in this browser. Save a project file to keep your work.');
+    }
+  }
+
+  /* ---------- downloads capability (published page only) ---------- */
+  function refreshDownloadButtons() {
+    const can = !inViewer || !!dl;
+    $('dl-png').hidden = !can;
+    $('chart-dl').hidden = !can;
+    $('dl-svg').hidden = !can;
+    $('save-json').hidden = !can;
+  }
+  refreshDownloadButtons();
+  if (inViewer) {
+    Promise.resolve()
+      .then(() => window.claude.use('downloads'))
+      .then(ns => { dl = ns || null; refreshDownloadButtons(); })
+      .catch(() => { dl = null; refreshDownloadButtons(); });
+  }
+
+  /* ---------- start ---------- */
+  state = loadDraft() || normalize(EXAMPLE);
+  renderList();
+  renderChart();
+  renderSub();
+  fillFields();
+  refreshPreviewSoon();
+  setStatus('Changes save in this browser');
+
+  /* once the web font has loaded, measure again so wrapping uses the real letterforms */
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => { wrapCache.clear(); renderChart(); });
+  }
+})();
+</script>
+</body>
+</html>
