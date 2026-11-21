@@ -93,6 +93,9 @@
   .btn.primary:hover{background:#3a3a3a;border-color:#3a3a3a}
   .btn.danger{background:#c62d2d;border-color:#c62d2d;color:#fff}
   .btn.danger:hover{background:#a82424;border-color:#a82424}
+  .btn.icon{width:36px;height:36px;padding:0;display:inline-grid;place-items:center}
+  .btn:disabled{opacity:.35;cursor:default}
+  .btn:disabled:hover{border-color:var(--border)}
   .tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
 
   /* confirm dialog */
@@ -120,6 +123,8 @@
     .card{padding:20px 16px 22px}
     .eyebrow h2{font-size:1.3rem}
     .tip{display:none}
+    .card-h{flex-wrap:wrap}
+    .card-h .tools{justify-content:flex-start}
   }
   @media(prefers-reduced-motion:reduce){*{transition:none !important}}
 </style>
@@ -140,6 +145,8 @@
       <div class="eyebrow"><span class="sq" aria-hidden="true"></span><h2 id="h-chart">Chart</h2></div>
       <div class="tools">
         <span class="tip">Click to add · drag to move</span>
+        <button class="btn icon" id="undo" type="button" aria-label="Undo" disabled><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"/></svg></button>
+        <button class="btn icon" id="redo" type="button" aria-label="Redo" disabled><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9"/></svg></button>
         <button class="btn" id="chart-dl" type="button" hidden>Download PNG</button>
         <button class="btn" id="clear-all" type="button">Clear all</button>
       </div>
@@ -212,7 +219,7 @@
   <div class="scrim" id="scrim" hidden>
     <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title" aria-describedby="dlg-text">
       <h3 id="dlg-title">Clear everything?</h3>
-      <p id="dlg-text">This removes every point and clears the title, labels, and footnote. This can't be undone.</p>
+      <p id="dlg-text">This removes every point and clears the title, labels, and footnote. You can undo this.</p>
       <div class="dialog-actions">
         <button class="btn" id="dlg-cancel" type="button">Cancel</button>
         <button class="btn danger" id="dlg-ok" type="button">Clear everything</button>
@@ -415,7 +422,7 @@
     Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
 
   /* ---------- the chart as SVG markup (used on the page and in every export) ---------- */
-  function chartSVG(forExport, g) {
+  function chartSVG(forExport, g, fontCSS) {
     const { W, H, P, phone } = g;
     const CX = (P.x0 + P.x1) / 2, CY = (P.y0 + P.y1) / 2;
     const toX = v => P.x0 + v * (P.x1 - P.x0);
@@ -432,6 +439,8 @@
       return textBlock(lines, x, y, o);
     };
 
+    /* exports carry the font inside, so the image draws the same letters the wrap was measured with */
+    if (fontCSS) add(`<defs><style><![CDATA[${fontCSS}]]></style></defs>`);
     add(`<rect width="${W}" height="${H}" fill="${C.bg}"/>`);
     /* on the page, empty labels show a faint placeholder so they can still be double-clicked; exports skip them */
     const ed = key => (forExport ? {} : { edit: key });
@@ -579,6 +588,55 @@
   let saveTimer = null;
   const inViewer = !!(window.claude && typeof window.claude.use === 'function');
 
+  /* ---------- undo and redo ----------
+     A snapshot is the whole chart as JSON. remember() is called before each change. */
+  const undoStack = [], redoStack = [];
+  const UNDO_MAX = 60;
+  let lastRememberKey = null, lastRememberAt = 0;
+
+  function remember(key) {
+    const now = performance.now();
+    // a run of changes under one key (typing, nudging, dragging) counts as one step
+    if (key && key === lastRememberKey && now - lastRememberAt < 1500) { lastRememberAt = now; return; }
+    lastRememberKey = key || null;
+    lastRememberAt = now;
+    const snap = JSON.stringify(serialize());
+    if (undoStack.length && undoStack[undoStack.length - 1] === snap) return;
+    undoStack.push(snap);
+    if (undoStack.length > UNDO_MAX) undoStack.shift();
+    redoStack.length = 0;
+    refreshUndoButtons();
+  }
+
+  /* puts a snapshot back on the page. Does not record a step. */
+  function restore(snap, msg) {
+    state = normalize(JSON.parse(snap));
+    selectedId = null;
+    finishInline(false);
+    renderList(); fillFields(); renderChart(); renderSub(); refreshPreviewSoon(); scheduleSave(msg);
+  }
+
+  function undo() {
+    if (!undoStack.length) { setStatus('Nothing to undo'); return; }
+    redoStack.push(JSON.stringify(serialize()));
+    restore(undoStack.pop(), 'Undone');
+    lastRememberKey = null;
+    refreshUndoButtons();
+  }
+
+  function redo() {
+    if (!redoStack.length) { setStatus('Nothing to redo'); return; }
+    undoStack.push(JSON.stringify(serialize()));
+    restore(redoStack.pop(), 'Redone');
+    lastRememberKey = null;
+    refreshUndoButtons();
+  }
+
+  function refreshUndoButtons() {
+    $('undo').disabled = !undoStack.length;
+    $('redo').disabled = !redoStack.length;
+  }
+
   const chartBox = $('chart'), list = $('list'), statusEl = $('status');
   const preview = $('preview'), previewBox = $('preview-box'), fileInput = $('file');
 
@@ -683,7 +741,7 @@
   }
 
   /* ---------- editing ---------- */
-  function changed() { renderChart(); renderSub(); refreshPreviewSoon(); scheduleSave(); }
+  function changed(msg) { renderChart(); renderSub(); refreshPreviewSoon(); scheduleSave(msg); }
 
   function selectPoint(id) {
     if (selectedId === id) return;
@@ -692,6 +750,7 @@
   }
 
   function addPoint(x, y, focus) {
+    remember();
     const p = {
       id: newId(), name: 'New point',
       x: clamp01(x), y: clamp01(y),
@@ -706,10 +765,11 @@
   }
 
   function removePoint(id) {
+    remember();
     state.items = state.items.filter(p => p.id !== id);
     if (selectedId === id) selectedId = null;
     renderList();
-    changed();
+    changed('Point deleted. Undo brings it back.');
   }
 
   const fields = {
@@ -726,7 +786,7 @@
   };
   function fillFields() { for (const [id, f] of Object.entries(fields)) $(id).value = f.get(); }
   for (const [id, f] of Object.entries(fields)) {
-    $(id).addEventListener('input', e => { f.set(e.target.value); changed(); });
+    $(id).addEventListener('input', e => { remember('field:' + id); f.set(e.target.value); changed(); });
   }
 
   $('add').addEventListener('click', () => {
@@ -776,8 +836,10 @@
     if (!drag || e.pointerId !== drag.pid) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) return;
     if (!drag.moved) chartBox.setPointerCapture(e.pointerId);   // keep getting moves outside the chart
+    const first = !drag.moved;
     drag.moved = true;
     if (!drag.id) return;
+    if (first) remember();   // one undo step for the whole drag, recorded before the point moves
     const pt = svgPoint(e);
     const p = pt && state.items.find(i => i.id === drag.id);
     if (!p) return;
@@ -808,6 +870,7 @@
     const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
     if (moves[e.key]) {
       e.preventDefault();
+      remember('nudge:' + id);
       p.x = clamp01(p.x + moves[e.key][0]);
       p.y = clamp01(p.y + moves[e.key][1]);
       selectedId = id;
@@ -833,10 +896,12 @@
     if (!p) return;
     const field = e.target.dataset.field;
     if (field === 'name') {
+      remember('row:' + p.id + ':name');
       p.name = e.target.value;
     } else if (field === 'x' || field === 'y') {
       const n = parseFloat(e.target.value);
       if (!Number.isFinite(n)) return;
+      remember('row:' + p.id + ':' + field);
       p[field] = clamp01(n / 100);
     } else {
       return;
@@ -866,6 +931,7 @@
     if (btn.dataset.act === 'del') {
       removePoint(p.id);
     } else if (btn.dataset.act === 'color') {
+      remember();
       p.color = PALETTE[(PALETTE.indexOf(p.color) + 1) % PALETTE.length];
       btn.style.background = p.color;
       renderChart();
@@ -880,14 +946,52 @@
     return slug || 'quadrant-chart';
   }
 
+  /* ---------- font for exports ----------
+     An image cannot load web fonts, so PNG and SVG downloads carry Instrument Sans inside them as data URLs. */
+  const FONT_CSS_URL = 'https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600;700&display=swap';
+  let fontCSSPromise = null;
+
+  /* gives up after ms, so an export never waits forever for the font */
+  function withTimeout(promise, ms) {
+    let timer = null;
+    const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), ms); });
+    return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+  }
+
+  /* the font CSS, with every font file inlined. Cached; a failure clears the cache so a later export can retry. */
+  function fontFaceCSS() {
+    if (!fontCSSPromise) {
+      fontCSSPromise = (async () => {
+        let css = await (await fetch(FONT_CSS_URL)).text();
+        const urls = [...new Set(css.match(/https:\/\/fonts\.gstatic\.com\/[^)'"\s]+/g) || [])];
+        for (const url of urls) {
+          const blob = await (await fetch(url)).blob();
+          const dataURL = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+          });
+          css = css.split(url).join(dataURL);
+        }
+        return css;
+      })();
+      fontCSSPromise.catch(() => { fontCSSPromise = null; });
+    }
+    return fontCSSPromise;
+  }
+
   /* Draws the SVG onto a canvas and returns a PNG blob. */
-  function renderPNG(scale) {
+  async function renderPNG(scale) {
     const g = deskGeo(state);
-    const svgURL = URL.createObjectURL(new Blob([chartSVG(true, g)], { type: 'image/svg+xml;charset=utf-8' }));
+    let css = '';
+    try { css = await withTimeout(fontFaceCSS(), 4000); } catch (e) { css = ''; }
+    const svgURL = URL.createObjectURL(new Blob([chartSVG(true, g, css)], { type: 'image/svg+xml;charset=utf-8' }));
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.onload = () => {
+      img.onload = async () => {
         try {
+          if (img.decode) { try { await img.decode(); } catch (e) { /* draw anyway */ } }
           const canvas = document.createElement('canvas');
           canvas.width = Math.round(g.W * scale);
           canvas.height = Math.round(g.H * scale);
@@ -965,7 +1069,11 @@
     }
   });
 
-  $('dl-svg').addEventListener('click', () => saveFile(baseName() + '.svg', chartSVG(true, deskGeo(state)), 'image/svg+xml'));
+  $('dl-svg').addEventListener('click', async () => {
+    let css = '';
+    try { css = await withTimeout(fontFaceCSS(), 4000); } catch (e) { css = ''; }
+    saveFile(baseName() + '.svg', chartSVG(true, deskGeo(state), css), 'image/svg+xml');
+  });
   /* the chart header button saves the same PNG as the export card */
   $('chart-dl').addEventListener('click', () => $('dl-png').click());
 
@@ -1088,6 +1196,7 @@
   }
 
   function loadSetup(raw) {
+    remember();
     state = normalize(raw);
     selectedId = null;
     renderList();
@@ -1117,7 +1226,7 @@
       return;
     }
     loadSetup(raw);
-    setPasteNote(`Loaded ${state.items.length} point${state.items.length === 1 ? '' : 's'}.`);
+    setPasteNote(`Loaded ${state.items.length} point${state.items.length === 1 ? '' : 's'}. Undo brings back your earlier chart.`);
   });
 
   /* ---------- confirm dialog (built in: the browser's own confirm() is blocked in the viewer) ---------- */
@@ -1158,6 +1267,7 @@
 
   /* ---------- clear all: back to a blank chart ---------- */
   function clearAll() {
+    remember();
     state = normalize({
       title: '', note: '',
       axes: { top: '', bottom: '', left: '', right: '' },
@@ -1171,7 +1281,7 @@
     renderSub();
     refreshPreviewSoon();
     clearTimeout(saveTimer);
-    persist('Cleared. Starting fresh.');
+    persist('Cleared. Undo brings it back.');
   }
   $('clear-all').addEventListener('click', () => openDialog(clearAll, $('clear-all')));
 
@@ -1245,7 +1355,9 @@
     if (!p || !text) return;
     openInline(text, p.name, 'Point name', 40, v => {
       if (!state.items.includes(p)) return;
-      p.name = v.trim() || 'Untitled';
+      const next = v.trim() || 'Untitled';
+      if (next !== p.name) remember();
+      p.name = next;
       syncName(p.id);
       changed();
     });
@@ -1256,7 +1368,9 @@
     const el = chartBox.querySelector(`[data-edit="${key}"]`);
     if (!f || !el) return;
     openInline(el, f.get(), PH[key], $(key).maxLength, v => {
-      f.set(v.trim());
+      const next = v.trim();
+      if (next !== f.get()) remember();
+      f.set(next);
       changed();
       fillFields();
     });
@@ -1265,9 +1379,9 @@
   window.addEventListener('resize', () => finishInline(true));
 
   /* ---------- autosave in this browser (a convenience; project files are the real copy) ---------- */
-  function scheduleSave() {
+  function scheduleSave(msg) {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(persist, 300);
+    saveTimer = setTimeout(() => persist(msg), 300);
   }
   function persist(msg) {
     try {
@@ -1293,6 +1407,25 @@
       .then(ns => { dl = ns || null; refreshDownloadButtons(); })
       .catch(() => { dl = null; refreshDownloadButtons(); });
   }
+
+  /* ---------- undo and redo: keys and button labels ---------- */
+  document.addEventListener('keydown', e => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const t = e.target;
+    // typing in a field keeps the browser's own undo
+    if (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && (t.type === 'text' || t.type === 'number'))) return;
+    if (!scrim.hidden || inline) return;   // not while the Clear dialog or a rename box is open
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+    else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
+  });
+
+  const isMac = /Mac/.test(navigator.platform || '') || /Mac/.test(navigator.userAgent);
+  $('undo').title = isMac ? 'Undo (⌘Z)' : 'Undo (Ctrl+Z)';
+  $('redo').title = isMac ? 'Redo (⇧⌘Z)' : 'Redo (Ctrl+Y)';
+  $('undo').addEventListener('click', undo);
+  $('redo').addEventListener('click', redo);
+  refreshUndoButtons();
 
   /* ---------- start ---------- */
   state = loadDraft() || normalize(EXAMPLE);
