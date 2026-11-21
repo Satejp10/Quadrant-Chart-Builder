@@ -26,7 +26,14 @@ On narrow screens the chart stacks its labels above and below the plot, so the t
 - `Quadrant_Chart_Builder.html`: the whole app (HTML, CSS, and JavaScript in one file). It loads the Instrument Sans font from Google Fonts.
 - `index.html`: sends the short link to the app.
 - `preview.png`: the picture shown in link previews.
+- `tests/`: smoke tests (see Tests below).
+- `.github/`: the GitHub Actions workflow that runs the tests.
 - `README.md`: this file.
+
+## Tests
+
+- How to run them: `npm install --no-save playwright@1.63.0`, then `npx playwright install chromium`, then `node tests/smoke.js`.
+- GitHub runs them on pull requests.
 
 ## Live site
 
