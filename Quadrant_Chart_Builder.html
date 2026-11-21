@@ -227,11 +227,10 @@
   'use strict';
 
   /* ---------- canvas and plot geometry (SVG units) ---------- */
-  /* Desktop: the plot sits inside a 960 x 700 canvas, with labels around it. Every export uses this layout. */
-  const DESK = { W: 960, H: 700, P: { x0: 210, x1: 750, y0: 124, y1: 604 }, phone: false };
+  /* Desktop: the plot is 960 wide and 480 tall. The canvas grows when text wraps (see deskGeo). Every export uses it. */
   /* Phone: a narrow canvas (see phoneGeo). A chart box narrower than PHONE_MAX uses it on the page. */
   const PHONE_MAX = 820;
-  let pageGeo = DESK;   // geometry of the chart on the page. Pointer math reads it.
+  let pageGeo = null;   // geometry of the chart on the page. renderChart sets it. Pointer math reads it.
 
   /* Plainchart tokens used inside the SVG, written as literal values so exports keep their colors */
   const C = { bg: '#ffffff', ink: '#1f1f1f', muted: '#737373', faint: '#a3a3a3', grid: '#f1f1f1', axis: '#dcdcdc', accent: '#7F4BF3' };
@@ -247,9 +246,9 @@
     axes: { top: 'Well constructed', bottom: 'Terribly constructed', left: 'I hate it', right: 'I like it' },
     quads: { tl: 'Well made, not for me', tr: 'Well made and loved', bl: 'Skip it', br: 'Loved, badly made' },
     items: [
-      { name: 'Cast-iron pan', x: 0.86, y: 0.9 },
-      { name: 'Wool coat', x: 0.2, y: 0.84 },
-      { name: 'Old hiking boots', x: 0.7, y: 0.68 },
+      { name: 'Cast-iron pan', x: 0.86, y: 0.76 },
+      { name: 'Wool coat', x: 0.2, y: 0.74 },
+      { name: 'Old hiking boots', x: 0.66, y: 0.56 },
       { name: 'Mystery paperback', x: 0.8, y: 0.2 },
       { name: 'Gift-shop umbrella', x: 0.18, y: 0.14 }
     ]
@@ -281,12 +280,19 @@
   const probe = document.createElementNS(SVGNS, 'text');
   measurer.appendChild(probe);
   document.body.appendChild(measurer);
+  /* widths are cached too: the point placer measures many names on every redraw */
+  const textWCache = new Map();
   const textW = (str, size, weight, family) => {
+    const key = [size, weight, family, str].join('|');
+    if (textWCache.has(key)) return textWCache.get(key);
     probe.setAttribute('font-family', family);
     probe.setAttribute('font-size', size);
     probe.setAttribute('font-weight', weight);
     probe.textContent = str;
-    return probe.getComputedTextLength();
+    const w = probe.getComputedTextLength();
+    if (textWCache.size > 5000) textWCache.clear();
+    textWCache.set(key, w);
+    return w;
   };
   const wrapCache = new Map();
   function wrap(str, maxW, size, weight, family) {
@@ -370,6 +376,44 @@
     return { W, H, P: { x0: 16, x1: 16 + pw, y0, y1 }, phone: true, half, pos: { titleY, topY, bottomY, rowY, noteY } };
   }
 
+  /* ---------- desktop layout ----------
+     The plot is always 480 tall. The title, the axis labels and the footnote sit around it and move down
+     when their text wraps to more lines, so the canvas grows with them. With one-line text this is 960 x 700. */
+  function deskGeo(s) {
+    const txt = (val, ph) => val || ph;
+    const countLines = (str, w, size, weight, family) => wrap(str, w, size, weight, family).length;
+    const span = (n, size, lh) => (n - 1) * size * lh;   // distance from a block's first baseline to its last
+    const nTitle = countLines(txt(s.title, 'Add a title'), 880, 32, 600, DISPLAY);
+    const nTop = countLines(txt(s.axes.top, 'Top label'), 380, 17, 600, SANS);
+    const nBottom = countLines(txt(s.axes.bottom, 'Bottom label'), 380, 17, 600, SANS);
+    const nNote = countLines(txt(s.note, 'Add a footnote'), 880, 15, 400, SANS);
+    const titleY = 58;
+    const topY = titleY + span(nTitle, 32, 1.2) + 48;    // first baseline of the top label
+    const y0 = topY + span(nTop, 17, 1.3) + 18;
+    const y1 = y0 + 480;
+    const bottomY = y1 + 36;
+    const noteY = bottomY + span(nBottom, 17, 1.3) + 34;
+    const H = noteY + span(nNote, 15, 1.3) + 26;
+    return { W: 960, H, P: { x0: 210, x1: 750, y0, y1 }, phone: false, pos: { titleY, topY, bottomY, noteY } };
+  }
+
+  /* ---------- text boxes ----------
+     The box a text block covers on the canvas. It uses the same baseline math as textBlock. */
+  function blockBox(lines, x, y, o) {
+    const fs = o.size, lh = fs * (o.lh || 1.3);
+    const span = (lines.length - 1) * lh;
+    const y0 = o.v === 'last' ? y - span : o.v === 'middle' ? y - span / 2 + fs * 0.36 : y;
+    const family = o.family || SANS, weight = o.weight || 400;
+    let width = 0;
+    for (const t of lines) width = Math.max(width, textW(t, fs, weight, family) + (o.ls || 0) * t.length);
+    const left = o.anchor === 'middle' ? x - width / 2 : o.anchor === 'end' ? x - width : x;
+    /* the top is 1.0 em above the baseline: that is where the glyph box measures in the browser (0.8 let names overlap) */
+    return { x0: left, x1: left + width, y0: y0 - fs * 1.0, y1: y0 + span + fs * 0.25 };
+  }
+  /* the area two boxes share */
+  const boxOverlap = (a, b) =>
+    Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+
   /* ---------- the chart as SVG markup (used on the page and in every export) ---------- */
   function chartSVG(forExport, g) {
     const { W, H, P, phone } = g;
@@ -379,14 +423,22 @@
     const s = state, out = [];
     const add = t => out.push(t);
     const AX = { size: 17, weight: 600, fill: C.muted };
+    /* boxes of the fixed text, so the point names can keep clear of it */
+    const taken = [];
+    /* draws a text block and records its box. Empty text draws nothing. */
+    const put = (lines, x, y, o) => {
+      if (!lines.some(t => t.trim())) return '';
+      taken.push(blockBox(lines, x, y, o));
+      return textBlock(lines, x, y, o);
+    };
 
     add(`<rect width="${W}" height="${H}" fill="${C.bg}"/>`);
     /* on the page, empty labels show a faint placeholder so they can still be double-clicked; exports skip them */
     const ed = key => (forExport ? {} : { edit: key });
     const shown = (val, ph) => val || (forExport ? '' : ph);
     const titleFill = s.title ? C.ink : C.faint;
-    if (phone) add(textBlock(wrap(shown(s.title, 'Add a title'), W - 32, PHONE_T.title, 600, DISPLAY), 16, g.pos.titleY, { size: PHONE_T.title, weight: 600, family: DISPLAY, lh: 1.2, fill: titleFill, ...ed('f-title') }));
-    else add(textBlock(wrap(shown(s.title, 'Add a title'), 880, 32, 600, DISPLAY), 40, 58, { size: 32, weight: 600, family: DISPLAY, lh: 1.2, fill: titleFill, ...ed('f-title') }));
+    const TS = phone ? PHONE_T.title : 32;
+    add(put(wrap(shown(s.title, 'Add a title'), phone ? W - 32 : 880, TS, 600, DISPLAY), phone ? 16 : 40, g.pos.titleY, { size: TS, weight: 600, family: DISPLAY, lh: 1.2, fill: titleFill, ...ed('f-title') }));
 
     /* dotted quarter gridlines, then the solid cross */
     for (const t of [0.25, 0.75]) {
@@ -400,55 +452,107 @@
     const axisFill = val => (val ? AX.fill : C.faint);
     const topT = shown(s.axes.top, 'Top label'), bottomT = shown(s.axes.bottom, 'Bottom label');
     const leftT = shown(s.axes.left, 'Left label'), rightT = shown(s.axes.right, 'Right label');
+    const AS = phone ? PHONE_T.axis : 17;              // axis label size
+    const AL = { ...AX, size: AS };
+    const AW = phone ? W - 32 : 380;                    // width the top and bottom labels wrap at
+    const SW = phone ? g.half : 168;                    // width the left and right labels wrap at
+    if (topT) add(put(wrap(topT, AW, AS, 600, SANS), CX, g.pos.topY, { ...AL, fill: axisFill(s.axes.top), anchor: 'middle', ...ed('f-top') }));
+    if (bottomT) add(put(wrap(bottomT, AW, AS, 600, SANS), CX, g.pos.bottomY, { ...AL, fill: axisFill(s.axes.bottom), anchor: 'middle', ...ed('f-bottom') }));
     if (phone) {
-      const pos = g.pos;
-      const PA = { ...AX, size: PHONE_T.axis };
-      if (topT) add(textBlock(wrap(topT, W - 32, PHONE_T.axis, 600, SANS), CX, pos.topY, { ...PA, fill: axisFill(s.axes.top), anchor: 'middle', ...ed('f-top') }));
-      if (bottomT) add(textBlock(wrap(bottomT, W - 32, PHONE_T.axis, 600, SANS), CX, pos.bottomY, { ...PA, fill: axisFill(s.axes.bottom), anchor: 'middle', ...ed('f-bottom') }));
-      if (leftT) add(textBlock(wrap(leftT, g.half, PHONE_T.axis, 600, SANS), P.x0, pos.rowY, { ...PA, fill: axisFill(s.axes.left), anchor: 'start', ...ed('f-left') }));
-      if (rightT) add(textBlock(wrap(rightT, g.half, PHONE_T.axis, 600, SANS), P.x1, pos.rowY, { ...PA, fill: axisFill(s.axes.right), anchor: 'end', ...ed('f-right') }));
+      if (leftT) add(put(wrap(leftT, SW, AS, 600, SANS), P.x0, g.pos.rowY, { ...AL, fill: axisFill(s.axes.left), anchor: 'start', ...ed('f-left') }));
+      if (rightT) add(put(wrap(rightT, SW, AS, 600, SANS), P.x1, g.pos.rowY, { ...AL, fill: axisFill(s.axes.right), anchor: 'end', ...ed('f-right') }));
     } else {
-      if (topT) add(textBlock(wrap(topT, 380, 17, 600, SANS), CX, P.y0 - 18, { ...AX, fill: axisFill(s.axes.top), anchor: 'middle', v: 'last', ...ed('f-top') }));
-      if (bottomT) add(textBlock(wrap(bottomT, 380, 17, 600, SANS), CX, P.y1 + 36, { ...AX, fill: axisFill(s.axes.bottom), anchor: 'middle', ...ed('f-bottom') }));
-      if (leftT) add(textBlock(wrap(leftT, 168, 17, 600, SANS), P.x0 - 16, CY, { ...AX, fill: axisFill(s.axes.left), anchor: 'end', v: 'middle', ...ed('f-left') }));
-      if (rightT) add(textBlock(wrap(rightT, 168, 17, 600, SANS), P.x1 + 16, CY, { ...AX, fill: axisFill(s.axes.right), anchor: 'start', v: 'middle', ...ed('f-right') }));
+      if (leftT) add(put(wrap(leftT, SW, AS, 600, SANS), P.x0 - 16, CY, { ...AL, fill: axisFill(s.axes.left), anchor: 'end', v: 'middle', ...ed('f-left') }));
+      if (rightT) add(put(wrap(rightT, SW, AS, 600, SANS), P.x1 + 16, CY, { ...AL, fill: axisFill(s.axes.right), anchor: 'start', v: 'middle', ...ed('f-right') }));
     }
 
     /* corner names */
     const corner = (val, ph) => up(shown(val, ph));
     const Q = phone ? { size: PHONE_T.corner, ls: PHONE_T.cornerLS, w: g.half, d: 12, up: 28, down: 14 } : { size: 14, ls: 0.9, w: 260, d: 14, up: 28, down: 16 };
     const QN = { size: Q.size, weight: 700, fill: C.muted, ls: Q.ls };
-    add(textBlock(wrap(corner(s.quads.tl, 'Corner label'), Q.w, Q.size, 700, SANS), P.x0 + Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tl ? C.muted : C.faint, anchor: 'start', ...ed('f-tl') }));
-    add(textBlock(wrap(corner(s.quads.tr, 'Corner label'), Q.w, Q.size, 700, SANS), P.x1 - Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tr ? C.muted : C.faint, anchor: 'end', ...ed('f-tr') }));
-    add(textBlock(wrap(corner(s.quads.bl, 'Corner label'), Q.w, Q.size, 700, SANS), P.x0 + Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.bl ? C.muted : C.faint, anchor: 'start', v: 'last', ...ed('f-bl') }));
-    add(textBlock(wrap(corner(s.quads.br, 'Corner label'), Q.w, Q.size, 700, SANS), P.x1 - Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.br ? C.muted : C.faint, anchor: 'end', v: 'last', ...ed('f-br') }));
+    add(put(wrap(corner(s.quads.tl, 'Corner label'), Q.w, Q.size, 700, SANS), P.x0 + Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tl ? C.muted : C.faint, anchor: 'start', ...ed('f-tl') }));
+    add(put(wrap(corner(s.quads.tr, 'Corner label'), Q.w, Q.size, 700, SANS), P.x1 - Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tr ? C.muted : C.faint, anchor: 'end', ...ed('f-tr') }));
+    add(put(wrap(corner(s.quads.bl, 'Corner label'), Q.w, Q.size, 700, SANS), P.x0 + Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.bl ? C.muted : C.faint, anchor: 'start', v: 'last', ...ed('f-bl') }));
+    add(put(wrap(corner(s.quads.br, 'Corner label'), Q.w, Q.size, 700, SANS), P.x1 - Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.br ? C.muted : C.faint, anchor: 'end', v: 'last', ...ed('f-br') }));
 
-    /* points */
-    for (const p of s.items) {
-      const cx = toX(p.x), cy = toY(p.y);
-      const name = p.name || 'Untitled';
-      const flip = phone ? p.x > 0.5 : p.x > 0.74;
+    /* footnote. It is fixed text, so it is drawn before the points and its box is known when they are placed. */
+    const NS = phone ? PHONE_T.note : 15;
+    add(put(wrap(shown(s.note, 'Add a footnote'), phone ? W - 32 : 880, NS, 400, SANS), phone ? 16 : 40, g.pos.noteY, { size: NS, weight: 400, fill: C.faint, ...ed('f-note') }));
+
+    /* point names. Each dot stays put. Each name tries eight spots, in list order, and keeps the one that
+       covers the least: fixed text, other dots, and area off the canvas. Names placed earlier count too. */
+    const ps = phone ? PHONE_T.point : 18;
+    const below = ps * 0.8;
+    const SPOTS = [
+      { anchor: 'start', v: 'middle', x: cx => cx + 17, y: cy => cy },                          // right
+      { anchor: 'end', v: 'middle', x: cx => cx - 17, y: cy => cy },                            // left
+      { anchor: 'middle', v: 'last', x: cx => cx, y: cy => cy - 16 },                           // above
+      { anchor: 'middle', x: cx => cx, y: cy => cy + 16 + below },                              // below
+      { anchor: 'start', v: 'last', x: cx => cx + 10, y: cy => cy - 12 },                       // above-right
+      { anchor: 'start', x: cx => cx + 10, y: cy => cy + 12 + below },                          // below-right
+      { anchor: 'end', v: 'last', x: cx => cx - 10, y: cy => cy - 12 },                         // above-left
+      { anchor: 'end', x: cx => cx - 10, y: cy => cy + 12 + below }                             // below-left
+    ];
+    /* the room a name has before the canvas edge, so it wraps in time */
+    const roomFor = (sp, cx) => {
+      if (!phone) return 280;
+      const w = sp.anchor === 'start' ? W - cx - 21 : sp.anchor === 'end' ? cx - 21 : 2 * Math.min(cx, W - cx) - 8;
+      return Math.min(220, Math.max(60, w));
+    };
+    const pts = s.items.map(p => ({ p, cx: toX(p.x), cy: toY(p.y), name: p.name || 'Untitled' }));
+    const dots = pts.map(q => ({ x0: q.cx - 10, x1: q.cx + 10, y0: q.cy - 10, y1: q.cy + 10 }));
+    /* a real clash: the two boxes overlap by more than 1 px each way, or the name's box reaches into a dot */
+    const hitsBox = (a, b) =>
+      Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 1 && Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > 1;
+    const hitsDot = (box, q) => {
+      const nx = Math.max(box.x0, Math.min(q.cx, box.x1)), ny = Math.max(box.y0, Math.min(q.cy, box.y1));
+      return Math.hypot(nx - q.cx, ny - q.cy) < 8;
+    };
+    /* a lower score is better. The order term makes ties go to the earlier spot. A real clash
+       costs far more than any margin, so a clean spot always wins when there is one. */
+    const spotScore = (box, self, order) => {
+      const b = { x0: box.x0 - 3, x1: box.x1 + 3, y0: box.y0 - 3, y1: box.y1 + 3 };
+      let sc = 0, clashes = 0;
+      for (const t of taken) { sc += boxOverlap(b, t); if (hitsBox(box, t)) clashes++; }
+      dots.forEach((d, j) => { if (j !== self) { sc += boxOverlap(b, d); if (hitsDot(box, pts[j])) clashes++; } });
+      const outside = (b.x1 - b.x0) * (b.y1 - b.y0) - boxOverlap(b, { x0: 4, y0: 4, x1: W - 4, y1: H - 4 });
+      return sc + 4 * outside + 0.5 * order + 1e6 * clashes;
+    };
+    const placed = pts.map((q, i) => {
+      const flip = phone ? q.p.x > 0.5 : q.p.x > 0.74;
+      // on the right side, left is tried first; otherwise right is. The other six follow in the listed order.
+      const tryOrder = flip ? [1, 0, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7];
+      let best = null;
+      tryOrder.forEach((k, t) => {
+        const sp = SPOTS[k];
+        const lines = wrap(q.name, roomFor(sp, q.cx), ps, 600, SANS);
+        const o = { size: ps, weight: 600, anchor: sp.anchor, v: sp.v, halo: 4 };
+        const x = sp.x(q.cx), y = sp.y(q.cy);
+        const box = blockBox(lines, x, y, o);
+        const sc = spotScore(box, i, t);
+        if (!best || sc < best.sc) best = { sc, lines, x, y, o, box };
+      });
+      taken.push(best.box);
+      return { q, lines: best.lines, x: best.x, y: best.y, o: best.o };
+    });
+
+    for (const { q, lines, x, y, o } of placed) {
       if (forExport) {
         add('<g>');
       } else {
-        const sel = p.id === selectedId ? ' is-sel' : '';
-        add(`<g class="pt${sel}" data-id="${p.id}" tabindex="0" role="button" aria-label="${esc(name)}, ${pct(p.x)} across and ${pct(p.y)} up. Arrow keys move it.">`);
-        add(`<circle class="halo" cx="${cx}" cy="${cy}" r="13" fill="none" stroke="${C.accent}" stroke-width="2"/>`);
+        const sel = q.p.id === selectedId ? ' is-sel' : '';
+        add(`<g class="pt${sel}" data-id="${q.p.id}" tabindex="0" role="button" aria-label="${esc(q.name)}, ${pct(q.p.x)} across and ${pct(q.p.y)} up. Arrow keys move it.">`);
+        add(`<circle class="halo" cx="${q.cx}" cy="${q.cy}" r="13" fill="none" stroke="${C.accent}" stroke-width="2"/>`);
       }
-      add(`<circle class="dot" cx="${cx}" cy="${cy}" r="8" fill="${p.color}" fill-opacity="0.62" stroke="${p.color}" stroke-width="1.5"/>`);
-      const room = flip ? cx - 21 : W - cx - 21;   // space from the label's start to the canvas edge
-      const ps = phone ? PHONE_T.point : 18;
-      const nameW = phone ? Math.min(220, Math.max(60, room)) : 280;
-      add(textBlock(wrap(name, nameW, ps, 600, SANS), flip ? cx - 17 : cx + 17, cy + 5, { size: ps, weight: 600, anchor: flip ? 'end' : 'start', halo: 4 }));
+      add(`<circle class="dot" cx="${q.cx}" cy="${q.cy}" r="8" fill="${q.p.color}" fill-opacity="0.62" stroke="${q.p.color}" stroke-width="1.5"/>`);
+      add(textBlock(lines, x, y, o));
       add('</g>');
     }
-
-    if (phone) add(textBlock(wrap(shown(s.note, 'Add a footnote'), W - 32, PHONE_T.note, 400, SANS), 16, g.pos.noteY, { size: PHONE_T.note, weight: 400, fill: C.faint, ...ed('f-note') }));
-    else add(textBlock(wrap(shown(s.note, 'Add a footnote'), 880, 15, 400, SANS), 40, H - 26, { size: 15, weight: 400, fill: C.faint, v: 'last', ...ed('f-note') }));
 
     const label = forExport ? '' : ` role="group" aria-label="Quadrant chart, ${s.items.length} point${s.items.length === 1 ? '' : 's'}"`;
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${SANS}"${label}>${out.join('')}</svg>`;
   }
+
 
   /* ---------- state ---------- */
   let state = null;
@@ -515,7 +619,7 @@
   function renderChart() {
     const bw = Math.round(chartBox.clientWidth);
     lastBoxWidth = bw;
-    pageGeo = bw < PHONE_MAX ? phoneGeo(state, Math.max(280, bw)) : DESK;
+    pageGeo = bw < PHONE_MAX ? phoneGeo(state, Math.max(280, bw)) : deskGeo(state);
     chartBox.classList.toggle('phone', pageGeo.phone);
     chartBox.innerHTML = chartSVG(false, pageGeo);
   }
@@ -762,14 +866,15 @@
 
   /* Draws the SVG onto a canvas and returns a PNG blob. */
   function renderPNG(scale) {
-    const svgURL = URL.createObjectURL(new Blob([chartSVG(true, DESK)], { type: 'image/svg+xml;charset=utf-8' }));
+    const g = deskGeo(state);
+    const svgURL = URL.createObjectURL(new Blob([chartSVG(true, g)], { type: 'image/svg+xml;charset=utf-8' }));
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
-          canvas.width = Math.round(DESK.W * scale);
-          canvas.height = Math.round(DESK.H * scale);
+          canvas.width = Math.round(g.W * scale);
+          canvas.height = Math.round(g.H * scale);
           const ctx = canvas.getContext('2d');
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -844,7 +949,7 @@
     }
   });
 
-  $('dl-svg').addEventListener('click', () => saveFile(baseName() + '.svg', chartSVG(true, DESK), 'image/svg+xml'));
+  $('dl-svg').addEventListener('click', () => saveFile(baseName() + '.svg', chartSVG(true, deskGeo(state)), 'image/svg+xml'));
   /* the chart header button saves the same PNG as the export card */
   $('chart-dl').addEventListener('click', () => $('dl-png').click());
 
@@ -871,7 +976,7 @@
   }
 
   $('copy-svg').addEventListener('click', async () => {
-    const ok = await copyText(chartSVG(true, DESK));
+    const ok = await copyText(chartSVG(true, deskGeo(state)));
     setStatus(ok ? 'SVG code copied.' : 'Copy is blocked in this view.');
   });
 
@@ -1192,7 +1297,7 @@
 
   /* once the web font has loaded, measure again so wrapping uses the real letterforms */
   if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(() => { wrapCache.clear(); renderChart(); });
+    document.fonts.ready.then(() => { wrapCache.clear(); textWCache.clear(); renderChart(); });
   }
 })();
 </script>
