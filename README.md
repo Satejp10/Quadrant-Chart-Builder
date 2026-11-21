@@ -19,7 +19,7 @@ Drafts save in this browser only. Save a project file to keep your work.
 
 ## Phones
 
-On narrow screens the chart stacks its labels above and below the plot, so the text stays readable. Swipe on an empty part of the chart to scroll the page. A finger that starts on a point drags it.
+On narrow screens the chart stacks its labels above and below the plot, so the text stays readable. Swipe on the chart to scroll the page. To move a point, start your drag on its dot.
 
 ## Files
 
@@ -37,6 +37,6 @@ On narrow screens the chart stacks its labels above and below the plot, so the t
 
 ## Live site
 
-https://satejp10.github.io/Quadrant-Chart-Builder/Quadrant_Chart_Builder.html
+https://satejp10.github.io/Quadrant-Chart-Builder/
 
-GitHub Pages serves the `main` branch, root folder. The short link above opens the app.
+GitHub Pages serves the `main` branch, root folder.

@@ -59,7 +59,11 @@
   .chart{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .chart svg{display:block;width:100%;height:auto;min-width:640px;cursor:crosshair;touch-action:pan-y pinch-zoom;user-select:none;-webkit-user-select:none}
   .chart.phone svg{min-width:0}
-  .chart svg g.pt{cursor:grab;outline:none;touch-action:none}
+  .chart svg g.pt{cursor:grab;outline:none}
+  /* only the dot and its touch circle stop scrolling; the name labels let the page scroll */
+  .chart svg .hit,.chart svg .dot{touch-action:none}
+  .chart svg .hit{pointer-events:none}
+  @media (pointer:coarse){.chart svg .hit{pointer-events:auto}}
   .chart svg g.pt:active{cursor:grabbing}
   .chart svg .dot{fill-opacity:.62;transition:fill-opacity .15s}
   .chart svg g.pt:hover .dot{fill-opacity:.88}
@@ -276,7 +280,7 @@
       { name: 'Cast-iron pan', x: 0.86, y: 0.76 },
       { name: 'Wool coat', x: 0.2, y: 0.74 },
       { name: 'Old hiking boots', x: 0.66, y: 0.56 },
-      { name: 'Mystery paperback', x: 0.8, y: 0.2 },
+      { name: 'Mystery paperback', x: 0.76, y: 0.32 },
       { name: 'Gift-shop umbrella', x: 0.18, y: 0.14 }
     ]
   };
@@ -322,15 +326,16 @@
     return w;
   };
   const wrapCache = new Map();
-  function wrap(str, maxW, size, weight, family) {
-    const key = [str, maxW, size, weight, family].join('|');
+  function wrap(str, maxW, size, weight, family, ls = 0) {
+    const key = [str, maxW, size, weight, family, ls].join('|');
     if (wrapCache.has(key)) return wrapCache.get(key);
     const words = String(str ?? '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
     let lines;
     if (!words.length) {
       lines = [''];
     } else {
-      const fits = s => textW(s, size, weight, family) <= maxW;
+      // letter-spacing adds ls px after each letter, so it counts toward the width
+      const fits = s => textW(s, size, weight, family) + ls * s.length <= maxW;
       // a single word wider than the box is broken into pieces that fit
       const pieces = [];
       for (const w of words) {
@@ -497,12 +502,12 @@
 
     /* corner names */
     const corner = (val, ph) => up(shown(val, ph));
-    const Q = phone ? { size: PHONE_T.corner, ls: PHONE_T.cornerLS, w: g.half, d: 12, up: 28, down: 14 } : { size: 14, ls: 0.9, w: 260, d: 14, up: 28, down: 16 };
+    const Q = phone ? { size: PHONE_T.corner, ls: PHONE_T.cornerLS, w: Math.floor((P.x1 - P.x0 - 36) / 2), d: 12, up: 28, down: 14 } : { size: 14, ls: 0.9, w: 250, d: 14, up: 28, down: 16 };
     const QN = { size: Q.size, weight: 700, fill: C.muted, ls: Q.ls };
-    add(put(wrap(corner(s.quads.tl, 'Corner label'), Q.w, Q.size, 700, SANS), P.x0 + Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tl ? C.muted : C.faint, anchor: 'start', ...ed('f-tl') }));
-    add(put(wrap(corner(s.quads.tr, 'Corner label'), Q.w, Q.size, 700, SANS), P.x1 - Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tr ? C.muted : C.faint, anchor: 'end', ...ed('f-tr') }));
-    add(put(wrap(corner(s.quads.bl, 'Corner label'), Q.w, Q.size, 700, SANS), P.x0 + Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.bl ? C.muted : C.faint, anchor: 'start', v: 'last', ...ed('f-bl') }));
-    add(put(wrap(corner(s.quads.br, 'Corner label'), Q.w, Q.size, 700, SANS), P.x1 - Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.br ? C.muted : C.faint, anchor: 'end', v: 'last', ...ed('f-br') }));
+    add(put(wrap(corner(s.quads.tl, 'Corner label'), Q.w, Q.size, 700, SANS, Q.ls), P.x0 + Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tl ? C.muted : C.faint, anchor: 'start', ...ed('f-tl') }));
+    add(put(wrap(corner(s.quads.tr, 'Corner label'), Q.w, Q.size, 700, SANS, Q.ls), P.x1 - Q.d, P.y0 + Q.up, { ...QN, fill: s.quads.tr ? C.muted : C.faint, anchor: 'end', ...ed('f-tr') }));
+    add(put(wrap(corner(s.quads.bl, 'Corner label'), Q.w, Q.size, 700, SANS, Q.ls), P.x0 + Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.bl ? C.muted : C.faint, anchor: 'start', v: 'last', ...ed('f-bl') }));
+    add(put(wrap(corner(s.quads.br, 'Corner label'), Q.w, Q.size, 700, SANS, Q.ls), P.x1 - Q.d, P.y1 - Q.down, { ...QN, fill: s.quads.br ? C.muted : C.faint, anchor: 'end', v: 'last', ...ed('f-br') }));
 
     /* footnote. It is fixed text, so it is drawn before the points and its box is known when they are placed. */
     const NS = phone ? PHONE_T.note : 15;
@@ -587,6 +592,7 @@
       } else {
         const sel = q.p.id === selectedId ? ' is-sel' : '';
         add(`<g class="pt${sel}" data-id="${q.p.id}" tabindex="0" role="button" aria-label="${esc(q.name)}, ${pct(q.p.x)} across and ${pct(q.p.y)} up. Arrow keys move it.">`);
+        add(`<circle class="hit" cx="${q.cx}" cy="${q.cy}" r="20" fill="transparent"/>`);
         add(`<circle class="halo" cx="${q.cx}" cy="${q.cy}" r="13" fill="none" stroke="${C.accent}" stroke-width="2"/>`);
       }
       add(`<circle class="dot" cx="${q.cx}" cy="${q.cy}" r="8" fill="${q.p.color}" fill-opacity="0.62" stroke="${q.p.color}" stroke-width="1.5"/>`);
@@ -846,7 +852,9 @@
     }
     lastKey = key;
     lastKeyAt = now;
-    drag = { id, label: !!label, pid: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false, start };
+    // a touch that starts on a name only scrolls: it never moves the point (a dot or its touch circle does)
+    const touchName = e.pointerType === 'touch' && !e.target.closest('.hit, .dot');
+    drag = { id, label: !!label, pid: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false, start, touchName };
     if (id) selectPoint(id);
     // no preventDefault and no pointer capture here: the normal focus change is what closes an open rename box,
     // and capture is only needed once a drag really starts (see pointermove)
@@ -858,7 +866,7 @@
     if (!drag.moved) chartBox.setPointerCapture(e.pointerId);   // keep getting moves outside the chart
     const first = !drag.moved;
     drag.moved = true;
-    if (!drag.id) return;
+    if (!drag.id || drag.touchName) return;
     if (first) remember();   // one undo step for the whole drag, recorded before the point moves
     const pt = svgPoint(e);
     const p = pt && state.items.find(i => i.id === drag.id);
@@ -885,8 +893,9 @@
     lastKey = null;
     if (d.moved && d.id) changed();
   });
-  /* Safari may not apply touch-action inside an SVG, so a touch that starts on a point is stopped here */
-  chartBox.addEventListener('touchstart', e => { if (e.target.closest && e.target.closest('g.pt')) e.preventDefault(); }, { passive: false });
+  /* Safari may not apply touch-action inside an SVG, so a touch that starts on a point's dot or its touch circle is stopped here.
+     A touch on a point's name is left alone, so the page can scroll. */
+  chartBox.addEventListener('touchstart', e => { if (e.target.closest && e.target.closest('.hit, .dot')) e.preventDefault(); }, { passive: false });
 
   /* ---------- chart: keyboard (focus a point, arrows move it) ---------- */
   chartBox.addEventListener('keydown', e => {
@@ -977,7 +986,7 @@
 
   /* ---------- font for exports ----------
      An image cannot load web fonts, so PNG and SVG downloads carry Instrument Sans inside them as data URLs. */
-  const FONT_CSS_URL = 'https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600;700&display=swap';
+  const FONT_CSS_URL = 'https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400..700&display=swap';
   let fontCSSPromise = null;
 
   /* gives up after ms, so an export never waits forever for the font */

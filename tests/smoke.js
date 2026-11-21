@@ -14,6 +14,8 @@ const PHONE = devices['iPhone 13'];
 const SETUP_X = { title: 'Which of our product bets are worth the next quarter of engineering time and money', note: 'Placement reflects the team workshop held in October; scores are rough, open to debate, and will be revisited after the next planning cycle ends.', axes: { top: 'High customer impact in every segment', bottom: 'Low customer impact', left: 'Hard to build well', right: 'Easy to build well, fast' }, quads: { tl: 'Big bets', tr: 'Quick wins', bl: 'Money pits', br: 'Fill-ins' }, items: [{ name: 'Self-serve onboarding flow', x: 0.73, y: 0.7 }, { name: 'Usage-based billing', x: 0.3, y: 0.3 }] };
 const SETUP_Y = { title: 'Close points', note: '', axes: { top: 'High', bottom: 'Low', left: 'Left', right: 'Right' }, quads: { tl: 'Top left', tr: 'Top right', bl: 'Bottom left', br: 'Bottom right' }, items: [{ name: 'Alpha product line', x: 0.40, y: 0.60 }, { name: 'Beta product line', x: 0.42, y: 0.62 }, { name: 'Gamma', x: 0.43, y: 0.58 }, { name: 'Near the corner', x: 0.05, y: 0.95 }, { name: 'Right edge', x: 0.98, y: 0.5 }] };
 
+const CLOSE_POINTS = '{"title":"Close points","note":"","axes":{"top":"High","bottom":"Low","left":"Left","right":"Right"},"quads":{"tl":"Top left","tr":"Top right","bl":"Bottom left","br":"Bottom right"},"items":[{"name":"Alpha product line","x":0.40,"y":0.60},{"name":"Beta product line","x":0.42,"y":0.62},{"name":"Gamma","x":0.43,"y":0.58}]}';
+
 /* ---------- helpers ---------- */
 
 // Opens the app in a fresh context and waits for the page to settle.
@@ -237,13 +239,15 @@ const checks = [
     return { ok: d.png && d.w === 1920 && d.h === 1400, detail: JSON.stringify(d) };
   }],
 
-  ['SVG download embeds the font', async b => {
+  ['SVG download embeds the font once and is under 90 KB', async b => {
     if (!(await fontsReachable())) return { skip: 'fonts.googleapis.com is not reachable' };
     const c = await open(b, DESK);
     const [dl] = await Promise.all([c.page.waitForEvent('download'), c.page.click('#dl-svg')]);
-    const svg = fs.readFileSync(await dl.path(), 'utf8');
+    const file = await dl.path();
+    const svg = fs.readFileSync(file, 'utf8');
+    const kb = fs.statSync(file).size / 1024;
     await c.context.close();
-    return { ok: svg.includes('@font-face'), detail: '' };
+    return { ok: svg.includes('@font-face') && svg.includes('base64,') && kb < 90, detail: `${kb.toFixed(1)} KB, @font-face ${svg.includes('@font-face')}, base64 ${svg.includes('base64,')}` };
   }],
 
   ['phone: no sideways scroll, name inputs at least 250 px wide', async b => {
@@ -268,6 +272,95 @@ const checks = [
     const y1 = await scrollY(c.page), n1 = await rowCount(c.page);
     await c.context.close();
     return { ok: y1 - y0 > 50 && n1 === n0, detail: `scrollY ${y0} -> ${y1}, rows ${n0} -> ${n1}` };
+  }],
+
+  ['phones 320, 360, 390, 430: no overlaps, no chopped words, every name on one line', async b => {
+    const bad = [];
+    for (const W of [320, 360, 390, 430]) {
+      const c = await open(b, { viewport: { width: W, height: 800 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
+      const p = await textProblems(c.page, true);
+      const w = await choppedWords(c.page);
+      const multi = await c.page.$$eval('#chart svg g.pt', gs => gs.filter(g => g.querySelectorAll('text tspan').length !== 1).map(g => g.getAttribute('aria-label')));
+      await c.context.close();
+      for (const x of [...p, ...w, ...multi.map(n => 'name wraps: ' + n)]) bad.push(`${W} px: ${x}`);
+    }
+    return { ok: bad.length === 0, detail: bad.join(' | ') };
+  }],
+
+  ['iPhone 13: swipe that starts on a point name scrolls the page and moves no point', async b => {
+    const c = await open(b, PHONE);
+    await centerChart(c.page);
+    const pick = await c.page.evaluate(() => {
+      const g = document.querySelector('#chart g.pt');
+      const r = g.querySelector('text').getBoundingClientRect();
+      return { id: g.dataset.id, x: r.left + r.width / 2, y: r.top + r.height / 2, label: g.getAttribute('aria-label') };
+    });
+    const cdp = await c.context.newCDPSession(c.page);
+    const y0 = await scrollY(c.page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: pick.x, y: pick.y }] });
+    for (let i = 1; i <= 10; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: pick.x, y: pick.y - 25 * i }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await c.page.waitForTimeout(400);
+    const y1 = await scrollY(c.page);
+    const after = await c.page.evaluate(id => document.querySelector(`#chart g.pt[data-id="${id}"]`).getAttribute('aria-label'), pick.id);
+    await c.context.close();
+    return { ok: y1 - y0 > 50 && after === pick.label, detail: `scrollY ${y0} -> ${y1}, label "${pick.label}" -> "${after}"` };
+  }],
+
+  ['iPhone 13: swipe that starts on a dot moves its Across value and keeps the page still', async b => {
+    const c = await open(b, PHONE);
+    await centerChart(c.page);
+    const pick = await c.page.evaluate(() => {
+      const d = document.querySelector('#chart circle.dot');
+      const r = d.getBoundingClientRect();
+      return { id: d.closest('g.pt').dataset.id, x: r.left + r.width / 2, y: r.top + r.height / 2, label: d.closest('g.pt').getAttribute('aria-label') };
+    });
+    const across = s => (s.match(/([\d.]+) across/) || [])[1];
+    const cdp = await c.context.newCDPSession(c.page);
+    const y0 = await scrollY(c.page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: pick.x, y: pick.y }] });
+    for (let i = 1; i <= 10; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: pick.x - 6 * i, y: pick.y + 4 * i }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await c.page.waitForTimeout(400);
+    const y1 = await scrollY(c.page);
+    const after = await c.page.evaluate(id => document.querySelector(`#chart g.pt[data-id="${id}"]`).getAttribute('aria-label'), pick.id);
+    await c.context.close();
+    return { ok: across(after) !== across(pick.label) && Math.abs(y1 - y0) <= 2, detail: `across ${across(pick.label)} -> ${across(after)}, scrollY ${y0} -> ${y1}` };
+  }],
+
+  ['desktop: a click about 10 px outside a dot still adds a point', async b => {
+    const c = await open(b, DESK);
+    const spot = await c.page.evaluate(() => {
+      const svg = document.querySelector('#chart svg');
+      const k = svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;   // screen px per chart unit
+      for (const d of document.querySelectorAll('#chart svg circle.dot')) {
+        const r = d.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const rad = 8 * k + 10;   // 10 px outside the dot's edge
+        for (let a = 0; a < 360; a += 15) {
+          const x = cx + rad * Math.cos(a * Math.PI / 180), y = cy + rad * Math.sin(a * Math.PI / 180);
+          const el = document.elementFromPoint(x, y);
+          if (el && (el.tagName === 'rect' || el.tagName === 'line') && el.closest('#chart svg')) return { x, y };
+        }
+      }
+      return null;
+    });
+    if (!spot) { await c.context.close(); return { ok: false, detail: 'no empty spot 10 px from a dot' }; }
+    const n0 = await rowCount(c.page);
+    await c.page.mouse.click(spot.x, spot.y);
+    await c.page.waitForTimeout(200);
+    const n1 = await rowCount(c.page);
+    await c.context.close();
+    return { ok: n1 === n0 + 1, detail: `rows ${n0} -> ${n1}` };
+  }],
+
+  ['setup "Close points" from the paste box renders with no errors', async b => {
+    const c = await open(b, DESK);
+    await loadSetup(c.page, CLOSE_POINTS);
+    const n = await rowCount(c.page);
+    const p = await textProblems(c.page, true);
+    await c.context.close();
+    return { ok: c.errors.length === 0 && n === 3 && p.length === 0, detail: [`rows ${n}`, ...c.errors, ...p].join(' | ') };
   }]
 ];
 
