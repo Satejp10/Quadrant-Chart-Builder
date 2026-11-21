@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Quadrant Chart Builder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f1f1f'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%23ffffff' stroke-width='3.5'/%3E%3C/svg%3E">
+<meta name="description" content="Make a 2x2 quadrant chart in your browser. Click to add points, drag to place them, then download a PNG or SVG. No sign-up, nothing to install.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Quadrant Chart Builder">
+<meta property="og:description" content="Make a 2x2 quadrant chart in your browser. Click to add points, drag to place them, then download a PNG or SVG. No sign-up, nothing to install.">
+<meta property="og:url" content="https://satejp10.github.io/Quadrant-Chart-Builder/">
+<meta property="og:image" content="https://satejp10.github.io/Quadrant-Chart-Builder/preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="An example quadrant chart titled Quality vs. taste">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -30,7 +41,7 @@
   .mark{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;letter-spacing:-0.01em}
   .mark .glyph{width:24px;height:24px;border-radius:6px;background:var(--ink);display:grid;place-items:center}
   .mark .glyph::before{content:"";width:11px;height:11px;border-radius:50%;border:2.5px solid #fff}
-  .stamp{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums;text-align:right}
+  .stamp{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
   h1{font-family:var(--display);font-weight:600;font-size:clamp(2.2rem,6vw,3.4rem);line-height:1.04;letter-spacing:-0.015em;margin:0 0 16px;max-width:16ch}
   .lede{font-size:clamp(1rem,2.2vw,1.12rem);color:var(--lede);max-width:62ch;margin:0 0 34px}
 
@@ -42,13 +53,13 @@
   .eyebrow h2{font-family:var(--display);font-weight:600;font-size:1.5rem;letter-spacing:-0.01em;margin:0;line-height:1.1}
   .sub{font-size:13px;color:var(--muted);margin:9px 0 18px}
   .sub b{color:var(--lede);font-weight:500}
-  .tip{font-size:12.5px;color:var(--faint);white-space:nowrap}
+  .tip{font-size:12.5px;color:var(--muted);white-space:nowrap}
 
   /* chart */
   .chart{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .chart svg{display:block;width:100%;height:auto;min-width:640px;cursor:crosshair;touch-action:none;user-select:none;-webkit-user-select:none}
+  .chart svg{display:block;width:100%;height:auto;min-width:640px;cursor:crosshair;touch-action:pan-y pinch-zoom;user-select:none;-webkit-user-select:none}
   .chart.phone svg{min-width:0}
-  .chart svg g.pt{cursor:grab;outline:none}
+  .chart svg g.pt{cursor:grab;outline:none;touch-action:none}
   .chart svg g.pt:active{cursor:grabbing}
   .chart svg .dot{fill-opacity:.62;transition:fill-opacity .15s}
   .chart svg g.pt:hover .dot{fill-opacity:.88}
@@ -73,7 +84,7 @@
 
   /* points list */
   .colhead,.row{display:grid;grid-template-columns:20px minmax(0,1fr) 62px 62px 32px;gap:8px;align-items:center}
-  .colhead{font-size:11.5px;font-weight:600;color:var(--faint);padding:0 8px 8px}
+  .colhead{font-size:11.5px;font-weight:600;color:var(--muted);padding:0 8px 8px}
   .colhead .r{text-align:right}
   .list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
   .row{padding:6px 8px;border-radius:10px;transition:background .15s}
@@ -84,7 +95,7 @@
   .sw{width:20px;height:20px;border-radius:6px;border:1px solid rgba(0,0,0,.08);padding:0;cursor:pointer}
   .del{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--muted);font:inherit;font-size:17px;line-height:1;cursor:pointer}
   .del:hover{color:var(--ink);border-color:#cfcfcf}
-  .empty{font-size:13px;color:var(--faint);padding:14px 8px}
+  .empty{font-size:13px;color:var(--muted);padding:14px 8px}
 
   /* buttons */
   .btn{font:inherit;font-size:13.5px;font-weight:500;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:999px;padding:8px 14px;cursor:pointer;white-space:nowrap;transition:border-color .15s,background .15s}
@@ -114,9 +125,9 @@
   /* export preview */
   .preview{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fff}
   .preview img{display:block;width:100%;height:auto}
-  .hint{font-size:12px;color:var(--faint);margin:12px 0 0}
+  .hint{font-size:12px;color:var(--muted);margin:12px 0 0}
 
-  footer{margin-top:34px;font-size:12px;color:var(--faint);line-height:1.6;border-top:1px solid var(--border);padding-top:18px}
+  footer{margin-top:34px;font-size:12px;color:var(--muted);line-height:1.6;border-top:1px solid var(--border);padding-top:18px}
 
   @media(max-width:600px){
     .wrap{padding:26px 16px 70px}
@@ -125,6 +136,15 @@
     .tip{display:none}
     .card-h{flex-wrap:wrap}
     .card-h .tools{justify-content:flex-start}
+    .colhead,.row{grid-template-columns:20px minmax(0,1fr) minmax(0,1fr) 32px}
+    .row{grid-template-areas:"sw name name name" ". x y del";row-gap:8px}
+    .row .sw{grid-area:sw}
+    .row input[data-field="name"]{grid-area:name}
+    .row input[data-field="x"]{grid-area:x}
+    .row input[data-field="y"]{grid-area:y}
+    .row .del{grid-area:del}
+    .colhead span:nth-child(2){display:none}
+    .list{gap:10px}
   }
   @media(prefers-reduced-motion:reduce){*{transition:none !important}}
 </style>
@@ -486,7 +506,7 @@
 
     /* footnote. It is fixed text, so it is drawn before the points and its box is known when they are placed. */
     const NS = phone ? PHONE_T.note : 15;
-    add(put(wrap(shown(s.note, 'Add a footnote'), phone ? W - 32 : 880, NS, 400, SANS), phone ? 16 : 40, g.pos.noteY, { size: NS, weight: 400, fill: C.faint, ...ed('f-note') }));
+    add(put(wrap(shown(s.note, 'Add a footnote'), phone ? W - 32 : 880, NS, 400, SANS), phone ? 16 : 40, g.pos.noteY, { size: NS, weight: 400, fill: s.note ? C.muted : C.faint, ...ed('f-note') }));
 
     /* point names. Each dot stays put. Each name tries eight spots, in list order, and keeps the one that
        covers the least: fixed text, other dots, and area off the canvas. Names placed earlier count too. */
@@ -857,7 +877,16 @@
     if (!d.id && !d.label && inPlot(d.start)) addPoint(fromX(d.start.x), fromY(d.start.y), true);
   }
   chartBox.addEventListener('pointerup', endPointer);
-  chartBox.addEventListener('pointercancel', endPointer);
+  /* a cancel means the browser took the touch to scroll. It never adds a point. */
+  chartBox.addEventListener('pointercancel', e => {
+    if (!drag || e.pointerId !== drag.pid) return;
+    const d = drag;
+    drag = null;
+    lastKey = null;
+    if (d.moved && d.id) changed();
+  });
+  /* Safari may not apply touch-action inside an SVG, so a touch that starts on a point is stopped here */
+  chartBox.addEventListener('touchstart', e => { if (e.target.closest && e.target.closest('g.pt')) e.preventDefault(); }, { passive: false });
 
   /* ---------- chart: keyboard (focus a point, arrows move it) ---------- */
   chartBox.addEventListener('keydown', e => {
