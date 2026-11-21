@@ -509,29 +509,45 @@
       return Math.hypot(nx - q.cx, ny - q.cy) < 8;
     };
     /* a lower score is better. The order term makes ties go to the earlier spot. A real clash
-       costs far more than any margin, so a clean spot always wins when there is one. */
-    const spotScore = (box, self, order) => {
+       costs far more than any margin, so a clean spot always wins when there is one. A name that
+       split a word costs 1e5: less than a clash, far more than any clean spot. */
+    const spotScore = (box, self, order, broken) => {
       const b = { x0: box.x0 - 3, x1: box.x1 + 3, y0: box.y0 - 3, y1: box.y1 + 3 };
       let sc = 0, clashes = 0;
       for (const t of taken) { sc += boxOverlap(b, t); if (hitsBox(box, t)) clashes++; }
       dots.forEach((d, j) => { if (j !== self) { sc += boxOverlap(b, d); if (hitsDot(box, pts[j])) clashes++; } });
       const outside = (b.x1 - b.x0) * (b.y1 - b.y0) - boxOverlap(b, { x0: 4, y0: 4, x1: W - 4, y1: H - 4 });
-      return sc + 4 * outside + 0.5 * order + 1e6 * clashes;
+      return sc + 4 * outside + 0.5 * order + 1e6 * clashes + (broken ? 1e5 : 0);
     };
     const placed = pts.map((q, i) => {
       const flip = phone ? q.p.x > 0.5 : q.p.x > 0.74;
       // on the right side, left is tried first; otherwise right is. The other six follow in the listed order.
       const tryOrder = flip ? [1, 0, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 3, 4, 5, 6, 7];
-      let best = null;
-      tryOrder.forEach((k, t) => {
+      // each spot's wrap and box for this name
+      const cands = tryOrder.map((k, t) => {
         const sp = SPOTS[k];
         const lines = wrap(q.name, roomFor(sp, q.cx), ps, 600, SANS);
         const o = { size: ps, weight: 600, anchor: sp.anchor, v: sp.v, halo: 4 };
-        const x = sp.x(q.cx), y = sp.y(q.cy);
-        const box = blockBox(lines, x, y, o);
-        const sc = spotScore(box, i, t);
-        if (!best || sc < best.sc) best = { sc, lines, x, y, o, box };
+        let x = sp.x(q.cx);
+        const y = sp.y(q.cy);
+        let box = blockBox(lines, x, y, o);
+        if (sp.anchor === 'middle') {
+          // centered spots slide sideways so the whole name stays 4 px inside the canvas
+          const w = box.x1 - box.x0;
+          x = Math.min(Math.max(x, 4 + w / 2), W - 4 - w / 2);
+          box = blockBox(lines, x, y, o);
+        }
+        // a name is broken when its words, put back together, differ from the name's words
+        const broken = lines.join(' ').split(' ').join('\u0001') !== q.name.trim().split(/\s+/).join('\u0001');
+        return { t, lines, x, y, o, box, broken };
       });
+      // a spot that adds lines costs 200 per extra line, against the fewest lines any spot gives
+      const minLines = Math.min(...cands.map(c => c.lines.length));
+      let best = null;
+      for (const c of cands) {
+        const sc = spotScore(c.box, i, c.t, c.broken) + 200 * (c.lines.length - minLines);
+        if (!best || sc < best.sc) best = { ...c, sc };
+      }
       taken.push(best.box);
       return { q, lines: best.lines, x: best.x, y: best.y, o: best.o };
     });
